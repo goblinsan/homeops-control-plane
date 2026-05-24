@@ -1,0 +1,73 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://example.com/homeops/schemas/repos.schema.json",
+  "title": "HomeOps Repository Inventory",
+  "description": "Schema for .inventory/repos.yaml — describes Git repositories managed by this home lab.",
+  "type": "object",
+  "required": ["repos"],
+  "additionalProperties": false,
+  "properties": {
+    "repos": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/definitions/repo"
+      }
+    }
+  },
+  "definitions": {
+    "repo": {
+      "type": "object",
+      "required": ["name", "url"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Short human-readable name for this repository.",
+          "examples": ["homeops-control-plane"]
+        },
+        "url": {
+          "type": "string",
+          "description": "Clone URL. Use HTTPS or SSH format. Do not commit tokens in the URL.",
+          "format": "uri",
+          "examples": ["https://github.com/example-org/example-repo"]
+        },
+        "description": {
+          "type": "string",
+          "description": "What this repository contains or manages."
+        },
+        "deploy_host": {
+          "type": "string",
+          "description": "Name of the node (from nodes.yaml) where this repo is checked out or deployed.",
+          "examples": ["<node-name>"]
+        },
+        "deploy_path": {
+          "type": "string",
+          "description": "Filesystem path on deploy_host where the repo lives.",
+          "examples": ["/opt/homeops/<repo-name>"]
+        },
+        "auto_pull": {
+          "type": "boolean",
+          "description": "Whether a cron job or systemd timer automatically pulls updates.",
+          "default": false
+        },
+        "branch": {
+          "type": "string",
+          "description": "Default branch tracked on this host.",
+          "default": "main"
+        },
+        "tags": {
+          "type": "array",
+          "description": "Arbitrary labels.",
+          "items": {
+            "type": "string"
+          }
+        },
+        "notes": {
+          "type": "string",
+          "description": "Free-form notes."
+        }
+      }
+    }
+  }
+}
