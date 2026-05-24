@@ -1,0 +1,87 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://example.com/homeops/schemas/nodes.schema.json",
+  "title": "HomeOps Node Inventory",
+  "description": "Schema for .inventory/nodes.yaml — describes physical and virtual nodes in the home lab.",
+  "type": "object",
+  "required": ["nodes"],
+  "additionalProperties": false,
+  "properties": {
+    "nodes": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/definitions/node"
+      }
+    }
+  },
+  "definitions": {
+    "node": {
+      "type": "object",
+      "required": ["name", "role", "os"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Short hostname (no FQDN, no real hostname committed to GitHub).",
+          "examples": ["<node-name>"]
+        },
+        "role": {
+          "type": "string",
+          "description": "Logical role of the node.",
+          "enum": [
+            "hypervisor",
+            "nas",
+            "workstation",
+            "router",
+            "vpn-gateway",
+            "monitoring",
+            "dev",
+            "other"
+          ]
+        },
+        "os": {
+          "type": "string",
+          "description": "Operating system identifier.",
+          "examples": ["debian-12", "proxmox-8", "truenas-scale", "openwrt"]
+        },
+        "arch": {
+          "type": "string",
+          "description": "CPU architecture.",
+          "enum": ["x86_64", "aarch64", "armv7", "riscv64"],
+          "default": "x86_64"
+        },
+        "management_ip": {
+          "type": "string",
+          "description": "LAN management IP (stored in encrypted inventory only — never commit real IPs to GitHub). Use a placeholder like '<LAN_IP>' in any example or template file.",
+          "examples": ["<LAN_IP>"],
+          "pattern": "^(<[A-Z_]+>|((25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.){3}(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?))$"
+        },
+        "ssh_user": {
+          "type": "string",
+          "description": "SSH login user (stored in encrypted inventory only — never commit real usernames).",
+          "examples": ["<SSH_USER>"]
+        },
+        "ssh_port": {
+          "type": "integer",
+          "description": "SSH port number.",
+          "minimum": 1,
+          "maximum": 65535,
+          "default": 22
+        },
+        "tags": {
+          "type": "array",
+          "description": "Arbitrary labels for grouping or filtering nodes.",
+          "items": {
+            "type": "string"
+          },
+          "examples": [["storage", "raid"], ["compute", "vm-host"]]
+        },
+        "notes": {
+          "type": "string",
+          "description": "Free-form notes about this node."
+        }
+      }
+    }
+  }
+}

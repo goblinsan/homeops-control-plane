@@ -1,0 +1,31 @@
+# General
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+
+# Inventory — must never be committed
+.inventory/
+*.age
+*.tar.age
+
+# Age key material
+*.key
+identity.age
+recipient.txt
+
+# Environment / secrets files
+.env
+.env.*
+*.secret
+secrets/
+credentials/
+
+# Editor directories
+.vscode/
+.idea/
+
+# OS artifacts
+__pycache__/
+*.pyc
