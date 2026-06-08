@@ -1,0 +1,70 @@
+You are fixing the remaining gaps in the `agent-service` project-checkin plan
+clobber regression.
+
+Read this file first:
+
+- `/Users/jamescoghlan/code/homeops-control-plane/docs/project-checkin-plan-fix-findings.md`
+
+Work only in:
+
+- `/Users/jamescoghlan/code/agent-service`
+
+Do not treat the findings file as optional background. Implement the remaining
+fixes exactly.
+
+You must perform these steps in order:
+
+1. Open `agent-service/internal/tools/schedules.go`.
+2. Find `defaultProjectCheckinPrompt(...)`.
+3. Remove the instruction that tells scheduled check-ins to update plans using
+   `plan_upsert`.
+4. Replace it with an explicit instruction that scheduled check-ins must use
+   `plan_progress_update` for lightweight plan updates.
+5. Add or update tests so the scheduled check-in prompt behavior is covered.
+
+Then:
+
+6. Open `agent-service/internal/tools/plans.go`.
+7. Modify the general plan update path so partial updates are merge-preserving.
+8. Do not allow omitted structured fields to erase existing stored plan data.
+9. Only explicitly provided fields may overwrite existing values.
+
+The merge-preservation fix must protect these fields:
+
+- `milestones`
+- `steps`
+- `objectives`
+- `principles`
+- `tracked_metrics`
+- `baseline_facts`
+- `success_criteria`
+- `cadence`
+- `supporting_sections`
+- `metrics`
+- `data_sources`
+- `connectors`
+- `category`
+- `review_cadence`
+- `target`
+- `vision`
+
+Then:
+
+10. Add regression tests proving:
+    - the scheduled prompt no longer references `plan_upsert`
+    - partial `plan_upsert` calls do not erase rich stored structure
+    - full explicit structured edits still work
+
+Hard constraints:
+
+- Do not make UI changes.
+- Do not solve this only with prompt edits.
+- Do not leave `plan_upsert` capable of destructive partial overwrite behavior.
+- Do not make unrelated refactors.
+
+Your output must include:
+
+1. the code changes
+2. the tests
+3. the exact test commands run
+4. confirmation that the remaining two findings are resolved

@@ -1,0 +1,46 @@
+You are fixing a specific regression in `agent-service`.
+
+Read this file first:
+
+- `/Users/jamescoghlan/code/homeops-control-plane/docs/project-checkin-plan-clobber-fix.md`
+
+Do not treat that document as optional guidance. Implement it exactly.
+
+Your task is to fix the bug where scheduled `project_checkin` runs overwrite
+rich plans with partial low-fidelity data.
+
+You must perform these actions in order:
+
+1. Find the `project_checkin` scheduled-job execution path and the exact place
+   where its tool registry is assembled.
+2. Remove the generic `plan_upsert` tool from scheduled `project_checkin` runs.
+3. Add a new narrow tool for scheduled check-ins, named clearly, such as
+   `plan_progress_update`.
+4. Make that new tool capable of writing only lightweight progress metadata.
+5. Explicitly prevent that tool from modifying or clearing structured plan
+   fields such as milestones, tasks, metrics, cadence, supporting sections,
+   baseline facts, objectives, principles, and similar canonical plan content.
+6. Add a defensive merge-preservation safeguard in the plan persistence/update
+   path so omitted fields cannot erase stored structured fields.
+7. Add regression tests proving:
+   - rich plans survive scheduled check-ins
+   - scheduled check-ins do not have access to generic `plan_upsert`
+   - partial updates do not erase structured plan content
+   - normal explicit user-driven plan edits and imports still work
+
+Hard constraints:
+
+- Do not solve this only by editing prompt text.
+- Do not leave `plan_upsert` available for `project_checkin`.
+- Do not redesign the UI.
+- Do not make unrelated refactors.
+- Do not silently allow omitted fields to zero out stored plan content.
+
+Your output should include:
+
+1. the code changes
+2. the tests
+3. a concise summary of what changed
+4. confirmation of which tests passed
+
+Do not broaden scope beyond this bug fix.
