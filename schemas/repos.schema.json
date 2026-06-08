@@ -46,6 +46,62 @@
           "description": "Filesystem path on deploy_host where the repo lives.",
           "examples": ["/opt/homeops/<repo-name>"]
         },
+        "local_checkout_path": {
+          "type": "string",
+          "description": "Path on the control workstation where this repository is checked out, if present locally.",
+          "examples": ["/Users/<user>/code/<repo-name>"]
+        },
+        "deploy_strategy": {
+          "type": "string",
+          "description": "How this repository is deployed or consumed operationally.",
+          "examples": ["control-plane-remote-workload", "managed-app-blue-green", "local-control-plane", "github-actions-runner"]
+        },
+        "deployed_services": {
+          "type": "array",
+          "description": "Service ids from services.yaml that are built from or deployed by this repository.",
+          "items": {
+            "type": "string"
+          }
+        },
+        "update_trigger": {
+          "type": "object",
+          "description": "How changes in this repository become deployed runtime changes.",
+          "additionalProperties": false,
+          "properties": {
+            "auto_deploy": {
+              "type": "boolean",
+              "description": "Whether commits or pushes can trigger deployment automatically."
+            },
+            "source": {
+              "type": "string",
+              "description": "Primary trigger mechanism.",
+              "enum": ["github-push", "manual", "control-plane", "webhook", "other"]
+            },
+            "branch": {
+              "type": "string",
+              "description": "Branch that the deployment automation watches."
+            },
+            "workflow": {
+              "type": "string",
+              "description": "Workflow or pipeline name responsible for deployment."
+            },
+            "runner_node": {
+              "type": "string",
+              "description": "Node id from nodes.yaml that hosts the runner or performs the deploy."
+            },
+            "notes": {
+              "type": "string",
+              "description": "Free-form notes about the deployment flow."
+            }
+          }
+        },
+        "depends_on_repos": {
+          "type": "array",
+          "description": "Other repositories this repo depends on operationally or in its deployment flow.",
+          "items": {
+            "type": "string"
+          }
+        },
         "auto_pull": {
           "type": "boolean",
           "description": "Whether a cron job or systemd timer automatically pulls updates.",

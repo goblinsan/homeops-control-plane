@@ -1,0 +1,82 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://example.com/homeops/schemas/services.schema.json",
+  "title": "HomeOps Service Inventory",
+  "description": "Schema for .inventory/services.yaml — describes services, where they run, and how they are managed.",
+  "type": "object",
+  "required": ["services"],
+  "additionalProperties": false,
+  "properties": {
+    "services": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/service"
+      }
+    }
+  },
+  "definitions": {
+    "service": {
+      "type": "object",
+      "required": ["name", "type", "node"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Short service name.",
+          "examples": ["<service-name>"]
+        },
+        "type": {
+          "type": "string",
+          "description": "How the service is deployed or managed.",
+          "enum": [
+            "systemd",
+            "docker-compose",
+            "container",
+            "vm",
+            "kubernetes",
+            "other"
+          ]
+        },
+        "node": {
+          "type": "string",
+          "description": "Node name from nodes.yaml where the service primarily runs.",
+          "examples": ["<node-name>"]
+        },
+        "repo": {
+          "type": "string",
+          "description": "Repository name from repos.yaml that defines or deploys this service.",
+          "examples": ["homeops-control-plane"]
+        },
+        "service_unit": {
+          "type": "string",
+          "description": "Systemd unit, compose project, namespace, or equivalent runtime identifier.",
+          "examples": ["<service-unit>"]
+        },
+        "exposure": {
+          "type": "string",
+          "description": "How clients reach the service.",
+          "enum": [
+            "lan",
+            "vpn",
+            "localhost-only",
+            "public",
+            "other"
+          ],
+          "default": "lan"
+        },
+        "depends_on": {
+          "type": "array",
+          "description": "Other services or infrastructure dependencies.",
+          "items": {
+            "type": "string"
+          },
+          "examples": [["<service-name>"], ["postgres", "redis"]]
+        },
+        "notes": {
+          "type": "string",
+          "description": "Free-form operational notes."
+        }
+      }
+    }
+  }
+}

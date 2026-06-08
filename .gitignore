@@ -10,6 +10,9 @@ Thumbs.db
 *.age
 *.tar.age
 
+# Personal plans and notes
+/plans/
+
 # Age key material
 *.key
 identity.age

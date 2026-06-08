@@ -67,16 +67,14 @@ echo "age1<YOUR_PUBLIC_KEY>" > ~/.config/homeops/recipient.txt
 ### 2. Create the initial inventory
 
 ```bash
-mkdir -p .inventory
-touch .inventory/nodes.yaml
-touch .inventory/repos.yaml
-touch .inventory/services.yaml
-touch .inventory/backups.yaml
+./scripts/init-inventory.sh
 ```
 
 Populate each file per its JSON schema:
 - `nodes.yaml` → [`schemas/nodes.schema.json`](../schemas/nodes.schema.json)
 - `repos.yaml` → [`schemas/repos.schema.json`](../schemas/repos.schema.json)
+- `services.yaml` → [`schemas/services.schema.json`](../schemas/services.schema.json)
+- `backups.yaml` → [`schemas/backups.schema.json`](../schemas/backups.schema.json)
 
 ### 3. Pack and upload
 
@@ -140,6 +138,8 @@ If the age identity is compromised or you want to re-key:
 - Enable **S3 SSE-KMS** for server-side encryption with CloudTrail audit
 - Restrict bucket access to a dedicated IAM user/role with least-privilege
 - Enable **S3 Object Lock** (Compliance mode) for immutable backup retention
+- Keep the encrypted inventory in a dedicated prefix such as `s3://<BUCKET>/<PREFIX>/homeops-inventory.tar.age`
+- Prefer blocking public access at the bucket level even though the payload is already age-encrypted
 
 > Do not store the S3 bucket name, AWS account ID, or IAM credentials in this repository.
 

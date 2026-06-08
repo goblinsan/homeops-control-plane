@@ -47,7 +47,7 @@ It does **not** contain — and must **never** contain — any of the following:
 2. **Never hard-code secrets.** Use environment variables; document them in README.md or the relevant runbook.
 3. **Scripts must be shellcheck-friendly.** Run `shellcheck scripts/*.sh` before proposing a script change.
 4. **No destructive disk commands without explicit user confirmation gates.** Any command that writes to a block device, formats a filesystem, or modifies a partition table must be behind a clear `read -p "Type YES to continue:"` guard with commentary explaining the risk.
-5. **`.inventory/` is gitignored.** Never read from or write to `.inventory/` as if it is source-of-truth for the repo; it is a local, decrypted working directory only.
+5. **`.inventory/` is gitignored.** Do not treat `.inventory/` as source-of-truth for committed repository content, public-safe documentation, or example config. It may be used as source-of-truth for local runtime materialization, generated untracked `.env` files, and private deployment inputs, provided those derived artifacts are not committed back to any public-safe repository.
 6. **Runbooks stay high-level.** Describe the process (e.g., "run mdadm --manage ... --add <device>") without referencing real device names or hostnames from the operator's environment.
 7. **Schema files use placeholder values.** Examples in JSON schemas must use `"example.com"`, `"<node-name>"`, etc.
 8. **Environment variables for configuration.** Any site-specific path, bucket, or URI must be sourced from an environment variable documented in the script header.

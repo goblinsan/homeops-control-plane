@@ -1,0 +1,67 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://example.com/homeops/schemas/backups.schema.json",
+  "title": "HomeOps Backup Inventory",
+  "description": "Schema for .inventory/backups.yaml — describes backup jobs, encrypted destinations, and retention.",
+  "type": "object",
+  "required": ["backups"],
+  "additionalProperties": false,
+  "properties": {
+    "backups": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/backup"
+      }
+    }
+  },
+  "definitions": {
+    "backup": {
+      "type": "object",
+      "required": ["name", "source_node", "source_path", "destination_uri", "schedule"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Short backup job name.",
+          "examples": ["<backup-job-name>"]
+        },
+        "source_node": {
+          "type": "string",
+          "description": "Node name from nodes.yaml where the source data lives.",
+          "examples": ["<node-name>"]
+        },
+        "source_path": {
+          "type": "string",
+          "description": "Path to the directory or dataset being backed up.",
+          "examples": ["/srv/<dataset-name>"]
+        },
+        "destination_uri": {
+          "type": "string",
+          "description": "Encrypted backup destination URI. Store the real bucket only in encrypted inventory.",
+          "pattern": "^s3://.+",
+          "examples": ["s3://<bucket>/<prefix>/"]
+        },
+        "schedule": {
+          "type": "string",
+          "description": "Human-readable backup cadence.",
+          "examples": ["daily 02:00", "weekly sun 03:00"]
+        },
+        "retention": {
+          "type": "string",
+          "description": "How long backups are retained.",
+          "examples": ["30 days", "12 months"]
+        },
+        "encryption": {
+          "type": "string",
+          "description": "Encryption scheme used before upload.",
+          "examples": ["age", "age + sse-kms"],
+          "default": "age"
+        },
+        "notes": {
+          "type": "string",
+          "description": "Free-form notes."
+        }
+      }
+    }
+  }
+}

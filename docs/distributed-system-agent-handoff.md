@@ -75,6 +75,37 @@ There are also adjacent repos that should stay indexed because they matter opera
 
 ## Completed Work
 
+### Post-merge stabilization of delegated planning work
+
+Completed after reviewing the merged delegated work in `gateway-chat-platform`
+and `agent-service`:
+
+- `gateway-chat-platform` commit `d6540f2`:
+  - the visual plan tracker no longer writes to a chat-api-local Prisma plan
+    store
+  - plan CRUD routes now proxy through `agent-service /internal/plans`
+  - this removes the split-brain where the UI and the assistant could see
+    different plan state
+- `agent-service` commit `e43c413`:
+  - accidental tracked build artifact removed from the repo
+  - duplicated migration numbering cleaned up by renaming the hierarchy
+    migration to `012_user_plan_hierarchy.sql`
+- `gateway-chat-platform` commit `c687b01`:
+  - the shared iOS package now owns the persisted-session bootstrap flow used
+    by the local `GatewayApp` companion app
+  - session state loads asynchronously instead of doing token/config reads on
+    the initial path
+- `agent-service` commit `bc2eaa1`:
+  - APNs delivery client now explicitly attempts HTTP/2, which matches the
+    transport expectations of the Apple push endpoint
+
+Operationally important result:
+
+- the merged plan-tracker feature now points at the same durable `user_plans`
+  store used by agent orchestration and project-manager context assembly
+- both repos were cleaned to a zero-diff working-tree state after the
+  stabilization commits landed
+
 ### Inventory bootstrap
 
 Completed in this repo:
@@ -179,6 +210,113 @@ Scope note:
 
 - unrelated in-progress iOS refactor changes were intentionally kept out of this feature commit set
 
+### Scheduler and push follow-up fixes
+
+Completed and pushed to `main`:
+
+- `agent-service` commit `72abed9` adds:
+  - correct terminal state handling for failed one-shot scheduled jobs
+  - safe recurring-job reschedule handling so invalid recurrence strings disable the job instead of hot-looping forever
+  - notification listing that excludes dismissed inbox items
+- `gateway-chat-platform` commit `6ccaa70` adds:
+  - mirroring from the existing mobile APNs registration route into `agent-service` device-token storage
+  - web inbox mapping that respects read state and filters dismissed notifications defensively
+
+Already completed earlier:
+
+- `gateway-chat-platform` commit `144f4b4` makes the `chat-api` to `agent-service` Docker network relationship durable in compose so container recreation does not break `agent-service` hostname resolution
+
+### Reminder delivery and inbox hardening
+
+Completed and pushed to `main`:
+
+- `agent-service` commit `fe14864` adds:
+  - a first-class schedule-creation tool for reminder requests
+  - reminder guidance so the model uses scheduling instead of abusing memory tools
+- `agent-service` commit `980cffa` adds:
+  - automation routing fallback to the normal chat node when no dedicated automation node is configured
+  - this prevents scheduled reminder runs from failing solely because automation-specific routing is unset
+- `gateway-chat-platform` commit `8914c29` adds:
+  - defensive normalization of notification records returned from `agent-service`
+  - web inbox rendering that tolerates notification records even when older payloads are inconsistent
+  - the shared iOS package inbox surface wired to the same `/api/notifications` feed used by the web inbox
+- `agent-service` commit `0527f2b` adds:
+  - a reminder-job policy that blocks `create_schedule` during reminder execution
+  - this prevents one-shot reminders from recursively creating fresh reminder jobs when they fire
+- `agent-service` commit `528e977` adds:
+  - deterministic reminder delivery that no longer uses free-form assistant output as the notification body
+  - reminder notifications now use the reminder text itself and the title `Reminder`
+  - this removes the class of bugs where reminder notifications talk about scheduling the reminder instead of delivering it
+
+Operational status:
+
+- the `gateway-chat-platform` deploy-on-merge run for `8914c29` completed successfully
+- the `agent-service` fixes were pulled and rebuilt live on the gateway host
+- a local rebuild/relaunch of the companion iPhone app is still required to confirm APNs re-registration through the corrected app-target path
+
+### Mobile planning tab redesign and deploy/auth stabilization
+
+Completed in `gateway-chat-platform` and `gateway-control-plane`:
+
+- the iPhone Planning tab was redesigned from a compact tracker into a
+  multi-screen planner built around mobile navigation instead of dense web-style
+  layout
+- the main Planning view now exposes day, week, month, and year horizons with
+  date navigation
+- task progress now uses the requested workflow order:
+  `todo`, `in_progress`, `complete`, `on_hold`, `blocked`
+- shared plan contracts now distinguish task statuses from higher-level plan and
+  milestone status values, avoiding the earlier mismatch between task progress
+  and goal health
+- plan, milestone, project, and goal detail flows were added so a user can drill
+  into a milestone or owning project/goal instead of only seeing a flat task list
+- plan-detail sections are now editable and collapsible, with headings treated as
+  their own editable/collapsible section rather than static text embedded in the
+  body
+- the shared iOS client and local `GatewayApp` wrapper were updated to match the
+  new plan APIs and task-status model
+- iOS package CI now builds/tests the shared mobile package so Planning tab
+  changes get checked before merge
+- chat-platform deploy-on-merge now runs the broader workspace typecheck before
+  deployment, catching cross-package type drift before production rollout
+
+Operational follow-up completed in `gateway-control-plane`:
+
+- the chat API mobile auth path was confirmed to remain bearer-token first for
+  native clients, independent of the browser Cloudflare Access flow
+- chat-platform env generation now preserves existing non-empty mobile bearer
+  token secrets across deploys, including token rotation values even when the
+  rendered service profile omits the rotation key
+- a recovery workflow can merge mobile bearer tokens found in the live shared env
+  and host-side deployment/config work directories without logging token values
+- the recovery workflow redeploys chat-platform and verifies every configured
+  mobile bearer token against `/api/session/me` before reporting success
+
+Current status:
+
+- the mobile Planning tab redesign has been committed and pushed
+- follow-up fix `cad67c8` corrected the mobile horizon implementation so the
+  default day view no longer shows every active task
+- follow-up fix `819aaa8` corrected weekday matching in the mobile planner so
+  imported plans with English weekday-prefixed task titles still match the
+  selected day even when the device locale differs
+- delete and `Won't do` task actions are now available directly in the mobile
+  planner and task-detail flows
+- deploy preservation and recovery verification have been committed, pushed, and
+  run successfully
+- remaining validation is user-facing: open the local companion app and confirm
+  the redesigned Planning tab and existing mobile token both work as expected
+
+Known limitation:
+
+- the current task model still has no explicit date fields
+- day/week filtering is heuristic for now:
+  - it matches weekday-prefixed task titles such as `Monday: ...`
+  - it can also infer weekdays from plan cadence metadata when task or
+    milestone text matches the cadence activity
+- if true calendar scheduling is required, the next schema change should add
+  explicit task timing fields such as `scheduled_for`, `start_at`, or `due_at`
+
 ## Current Architecture Direction
 
 The intended distributed pattern is:
@@ -191,6 +329,27 @@ The intended distributed pattern is:
 
 `agent-service` should be treated as the next major integration point.
 
+## New Near-Term Priority
+
+The current next operational goal is to turn the additional storage attached to
+the Papai node into network-accessible household storage.
+
+Recommended direction:
+
+- use SMB as the primary protocol first
+- target compatibility with:
+  - macOS Finder clients
+  - Windows Explorer clients
+- defer any NFS-only optimization until the SMB path is stable
+
+Immediate work still needed:
+
+1. inspect the live Papai disk and mount layout
+2. define the intended share boundaries and access model
+3. configure Samba on Papai
+4. verify client mounting from macOS and Windows
+5. add a public-safe runbook to this repo documenting the generic SMB setup
+
 ## Remaining Work
 
 ### Workstream 1: finish node rollout
@@ -201,7 +360,7 @@ The intended distributed pattern is:
 - register each node cleanly in the control-plane model
 - ensure each node has the intended model artifact loaded, not just a healthy wrapper service
 
-### Workstream 2: deploy `agent-service`
+### Workstream 2: validate and enable scheduled-work delivery
 
 The recommended role for `agent-service` is:
 
@@ -212,17 +371,109 @@ The recommended role for `agent-service` is:
 
 Still needed:
 
-- choose the final deploy host
-- verify or provision the required shared Postgres database/user
-- deploy the repo from GitHub
-- configure upstream callers
-- register model-node endpoints
-- add APNs dispatch fan-out from `agent-service` notification events to registered device tokens
-- add delivery telemetry and failure handling for invalid or expired push tokens
+- verify the phone rebuild/relaunch re-registers the APNs token through the corrected client path
+- create a fresh reminder after the latest deploys and confirm it appears in the web inbox without rendering errors
+- confirm the same reminder appears in the iPhone in-app inbox surface and reaches the device as a push
+- verify scheduled jobs create notifications at the expected times without duplicate or stuck re-runs
+- verify reminder notifications now contain the actual reminder text rather than scheduling-related assistant prose
+- keep delivery telemetry and failure handling for invalid or expired push tokens under observation during rollout
+
+Known behavior:
+
+- notification bodies are intentionally capped at `280` characters in the scheduler worker before push/inbox fan-out
+- recurring schedules are supported today as interval-based recurrence strings such as `@every 24h`
+- recurring schedules now also support timezone-aware local daily windows via `@daily-local HH:MM[,HH:MM...]` plus a stored IANA timezone
+- invalid recurrence strings are now disabled safely instead of hot-looping
 
 Recommended immediate next item:
 
-- implement APNs delivery in `agent-service` behind explicit environment-gated configuration, keeping scheduler default-off behavior unchanged until rollout validation is complete
+- validate end-to-end reminder delivery from chat request to scheduled execution to inbox/push, then broaden scheduled work usage
+
+### Workstream 2a: evolve scheduled work into project-manager check-ins
+
+The target user-facing behavior is:
+
+- the system should act as a project manager
+- it should check in on a regular cadence
+- it should give guidance tied to stated goals and current progress
+- it should update progress against those goals over time
+
+Current platform fit:
+
+- the notification, inbox, and schedule foundation now exists
+- the user-plan and memory primitives already exist in `agent-service`
+- recurring schedules can already drive interval-based follow-ups
+
+What is still needed for the full project-manager loop:
+
+- live validation of the new dedicated check-in job path rather than treating everything as a generic reminder
+- live validation of wall-clock recurrence so morning, afternoon, and night check-ins execute at the intended local times
+- a write-back path that lets the system record progress updates, next steps, and unresolved blockers against the user’s plans
+- inbox and push UX that distinguishes reminders from project-manager check-ins
+
+Near-term implementation path:
+
+- deploy and validate the new `project_checkin` scheduled-job kind
+- deploy and validate multiple named local-time schedule windows
+- have each check-in run read `user_plans`, recent events, and relevant memory before composing the guidance message
+- append a structured progress note or plan update after each completed check-in when appropriate
+
+Latest progress:
+
+- `agent-service` now has a `plan_ingest_text` tool so pasted plain-text or markdown plans from other systems can be converted into durable `user_plans`
+- user-context injection now includes plan-step detail, not just top-level plan titles and summaries
+- user-context guidance now explicitly tells the model to call `plan_list` early for project-manager-style guidance and to use `plan_ingest_text` when the user pastes a roadmap or plan document
+- the iPhone notification inbox now has an on-demand `Read aloud` action that sends notification text through the existing gateway TTS path
+- `user_plans` has been extended in code with typed metadata fields: `category`, `tags`, `data_sources`, `review_cadence`, and `metrics`
+- `plan_upsert`, `plan_list`, and `plan_ingest_text` now understand and return that typed metadata so future domain-specific workflows can distinguish work, health, finance, and social plans
+- the iPhone chat surface now has a document-import flow for plain-text and markdown files; imported text is prefixed with an explicit `plan_ingest_text` instruction so users can ingest external plans without retyping them
+- `agent-service` now has a dedicated `create_project_checkin` tool that schedules recurring `project_checkin` jobs against named daily windows (`morning`, `afternoon`, `night`)
+- the scheduler now supports timezone-aware daily wall-clock recurrence using an IANA timezone plus `@daily-local` recurrence strings
+- `project_checkin` and `reminder` automation runs are both prevented from recursively scheduling more future jobs
+- the delegated visual plan tracker work was reviewed and stabilized so it no longer writes to a second chat-api-local plan store
+- `gateway-chat-platform` now proxies tracker CRUD through `agent-service /internal/plans`, keeping the assistant and UI on the same durable plan source of truth
+- repository cleanup after that review removed an accidental committed `agent-service` binary and renumbered the duplicated hierarchy migration to `012_user_plan_hierarchy.sql`
+
+What still needs live validation:
+
+- verify the tracker on the live web UI and the iPhone app still behaves correctly after the `agent-service` plan-route unification
+- confirm creating or editing milestones/tasks in the tracker changes the same plan state later used by project-manager check-ins and reminder context
+- decide whether any legacy chat-api-local plan rows need one-time cleanup or migration, or whether they can simply be abandoned
+
+### Workstream 2b: finish the plan-tracker product loop
+
+The storage and CRUD plumbing now points at the durable plan store, and the
+mobile Planning tab has moved to a more complete multi-screen workflow.
+
+Recently completed:
+
+- iPhone Planning now opens on a day-focused task view instead of a generic
+  tracker overview
+- secondary mobile views cover week, month, and year planning horizons, with
+  previous/next navigation for each horizon
+- task status updates use the mobile workflow order `todo` -> `in_progress` ->
+  `complete` -> `on_hold` -> `blocked`
+- delete and `Won't do` actions are available in the mobile planner and
+  task-detail surfaces
+- detail screens exist for milestones and owning project/goal context
+- editable/collapsible detail sections were added so plan headings, notes, and
+  related metadata can be managed without overloading the task list
+- the web/shared/mobile plan types now use task-specific status values for tasks
+  and health-style status values for goals/milestones
+
+Still needed:
+
+- verify the live web tracker and local iPhone tracker both read and mutate the
+  same `agent-service` plan records
+- validate the redesigned mobile Planning navigation on an actual device after
+  the latest deploy/auth fixes
+- decide whether task scheduling should stay heuristic or whether explicit
+  date/timeline fields should be added to the shared plan schema
+- decide whether plan review cadence, next-review timing, and typed metadata
+  should be editable directly in the tracker views rather than only through
+  backend tools
+- ensure project-manager check-ins write progress back into those same plans so
+  the tracker becomes the visible state surface for the assistant’s ongoing work
 
 ### Workstream 3: fold the new node into normal deploy flow
 
@@ -260,6 +511,37 @@ The `gateway-control-plane` fix must be carried through:
 The commit/push/deploy steps are now complete. Remaining work is only follow-up
 verification and keeping the fix intact through future changes.
 
+## Goal-System Roadmap
+
+The near-term implementation order for the project-manager assistant is now:
+
+1. typed plan metadata
+
+- status: implemented in code
+- purpose: let the system tell the difference between work, health, finance, and social goals
+- shape: `category`, `tags`, `data_sources`, `review_cadence`, `metrics`
+
+2. plan-document import from mobile
+
+- status: implemented in code
+- current UX: import a plain-text or markdown file from the iPhone app, prefill chat with a `plan_ingest_text` instruction, then send it
+- limitation: there is not yet a first-class attachment transport or background ingest API; the flow still routes through chat intentionally
+
+3. recurring project check-ins
+
+- status: not yet implemented
+- next requirement: support wall-clock local-time recurrence for named check-in windows such as morning, afternoon, and night
+- recommended design: add a dedicated `project_checkin` job type instead of treating check-ins as generic reminders
+
+4. domain/source connectors
+
+- status: not yet implemented
+- target examples:
+  - health: Apple Health, Strava, LoseIt
+  - finance: budget sheets or finance sources
+  - social: people/relationship context and reminders
+  - work: repos, project docs, and active plans
+
 ## Verification Checklist
 
 When continuing work, prefer verifying these surfaces:
@@ -276,13 +558,14 @@ Do not assume a service is integrated just because it is running locally on a no
 ## Suggested Next Execution Order
 
 1. Verify and roll out the remaining planned LLM nodes.
-2. Provision or confirm the shared Postgres database/user required by `agent-service`.
-3. Deploy `agent-service` against shared data services.
-4. Connect chat/orchestration callers to `agent-service`.
-5. Normalize the new node into the standard pull/deploy model.
-6. Tighten telemetry, backups, and maintenance routines.
-7. Make the `gateway-chat-platform` to `agent-service` network relationship durable so cross-surface thread sync survives container recreation.
+2. Verify the latest `agent-service` and `gateway-chat-platform` deploys complete cleanly.
+3. Confirm the mobile APNs registration route is mirrored into `agent-service`.
+4. Create a test notification and verify web inbox plus mobile push delivery.
+5. Enable and validate scheduled jobs behind the existing feature flag.
+6. Normalize the new node into the standard pull/deploy model.
+7. Tighten telemetry, backups, and maintenance routines.
 8. Verify the live web/mobile chat surfaces are actually sharing the same server-backed thread list and history.
+9. Validate the redesigned mobile Planning tab against live plan data, including today tasks, horizon views, status updates, and detail editing.
 
 Immediate resumption note:
 
@@ -295,8 +578,8 @@ Immediate resumption note:
   retired
 - one tier-node is currently healthy but `no-model` after redeploy
   and needs its model reloaded before it serves inference again
-- the next concrete task is provisioning the shared database and
-  user for `agent-service` and bringing `agent-service` online
+- `agent-service` is now online; the next concrete task is validating
+  inbox and push delivery end to end, then enabling real scheduled work
 - the web chat surface has now been migrated in code from browser-local
   thread storage to the server-backed `/api/threads` API, and a follow-up
   identity fix was pushed so web and mobile can resolve to the same
@@ -308,14 +591,9 @@ Immediate resumption note:
 - a follow-up worth tracking: the control-plane is not yet
   reconciling `llm-service` on worker nodes, so node drift requires
   manual redeploy
-- a newer operational issue was identified on May 25, 2026: the
-  active `gateway-chat-platform` `chat-api` container could not
-  resolve `agent-service`, which broke `/api/threads` for the iOS
-  app with `502`. The immediate live fix was attaching the active
-  green `chat-api` container to `agent-service_default` with alias
-  `agent-service`. This restored thread sync but is not durable
-  across restart/redeploy until encoded into compose or deployment
-  automation
+- the earlier `chat-api` to `agent-service` Docker-network issue is now
+  encoded in compose, so future restarts should not require a manual
+  `docker network connect` repair
 
 ## Local-Only Dependencies
 
