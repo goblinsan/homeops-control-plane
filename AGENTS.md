@@ -84,6 +84,28 @@ S3 (updated bundle)
 
 ---
 
+## Private inventory read order
+
+If `.inventory/` is present locally, agents should orient themselves in this order before planning environment changes:
+
+1. `.inventory/current-system-overview.md`
+2. `.inventory/current-system-overview.yaml`
+3. `.inventory/nodes.yaml`
+4. `.inventory/services.yaml`
+5. `.inventory/repos.yaml`
+6. `.inventory/backups.yaml`
+7. `.inventory/agent-handoff.local.md`
+
+Important:
+
+- Treat `.inventory/current-system-overview.{md,yaml}` as the canonical short-form view of the current environment.
+- Treat `.inventory/agent-handoff.local.md` as supporting history, recent changes, and detailed notes, not as the first document to anchor on.
+- Do not infer that the environment is greenfield just because a plan document proposes new architecture.
+- Do not assume a single deployment model across the system; confirm whether a service is a managed app, a remote workload, or an internal stateful Compose service.
+- If the short-form overview conflicts with older session-log notes, prefer the overview unless the user says otherwise or you verify a more recent change.
+
+---
+
 ## Validation
 
 Before proposing a PR:
