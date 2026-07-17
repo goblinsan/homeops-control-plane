@@ -41,6 +41,16 @@ It does **not** contain — and must **never** contain — any of the following:
 
 ---
 
+## Planning tasks for the local coding orchestrator
+
+If a session's job is to turn a goal into tasks a local model will execute (a
+planning hand-off to the 14B orchestrator), the contract lives in the
+`project-dashboard` repo: `docs/authoring-tasks-for-local-execution.md`. Shape every
+task as one self-contained file, spell out cross-file facts, pre-flight through the
+dashboard's `POST /plans/evaluate` until each task fits, then submit via
+`tasks:bulk`. Do not restate the contract here; it versions with that repo. (Claude
+sessions can use the `plan-for-14b` skill, which follows the same doc.)
+
 ## Rules for agents
 
 1. **Never commit real topology.** Use placeholders like `<NODE_NAME>`, `<LAN_IP>`, `<BUCKET_NAME>`.
@@ -51,6 +61,41 @@ It does **not** contain — and must **never** contain — any of the following:
 6. **Runbooks stay high-level.** Describe the process (e.g., "run mdadm --manage ... --add <device>") without referencing real device names or hostnames from the operator's environment.
 7. **Schema files use placeholder values.** Examples in JSON schemas must use `"example.com"`, `"<node-name>"`, etc.
 8. **Environment variables for configuration.** Any site-specific path, bucket, or URI must be sourced from an environment variable documented in the script header.
+
+### Secret-safe execution rules
+
+Agents must not print, echo, or paste secret-bearing material into chat, notes, or logs.
+
+This includes:
+
+- `.env` contents
+- `DATABASE_URL`
+- passwords
+- API keys
+- AWS credentials
+- private keys
+- token values
+- secret-bearing lines from private inventory or handoff files
+
+Allowed validation patterns:
+
+- confirm `set` vs `missing`
+- confirm file exists vs missing
+- confirm auth works by using the secret in place on the host
+- print only redacted forms such as `<set>`, `<redacted>`, length, or a non-sensitive fingerprint
+
+Forbidden inspection patterns unless the output is explicitly redacted before it reaches chat:
+
+- `cat` on secret-bearing files
+- `grep`/`sed`/`awk` that prints raw credential values
+- printing `~/.aws/credentials`
+- printing raw lines from `.inventory/agent-handoff.local.md` that may contain secrets
+
+If a task touches credentials or secret rotation:
+
+1. prefer `.inventory/secrets.local.{md,yaml}` over older handoff notes
+2. inspect secret-bearing files only with redacted or in-place validation methods
+3. if a credential is exposed in chat or notes, stop treating it as valid and record the need for rotation
 
 ---
 
@@ -90,16 +135,20 @@ If `.inventory/` is present locally, agents should orient themselves in this ord
 
 1. `.inventory/current-system-overview.md`
 2. `.inventory/current-system-overview.yaml`
-3. `.inventory/nodes.yaml`
-4. `.inventory/services.yaml`
-5. `.inventory/repos.yaml`
-6. `.inventory/backups.yaml`
-7. `.inventory/agent-handoff.local.md`
+3. `.inventory/secrets.local.md` (if present)
+4. `.inventory/secrets.local.yaml` (if present)
+5. `.inventory/nodes.yaml`
+6. `.inventory/services.yaml`
+7. `.inventory/repos.yaml`
+8. `.inventory/backups.yaml`
+9. `.inventory/agent-handoff.local.md`
 
 Important:
 
 - Treat `.inventory/current-system-overview.{md,yaml}` as the canonical short-form view of the current environment.
+- If present, treat `.inventory/secrets.local.{md,yaml}` as the canonical private registry for credential locations, secret ownership, materialization paths, and rotation status.
 - Treat `.inventory/agent-handoff.local.md` as supporting history, recent changes, and detailed notes, not as the first document to anchor on.
+- Treat `.inventory/agent-handoff.local.md` as potentially contaminated with historical secret-bearing notes; do not print raw lines from it into chat.
 - Do not infer that the environment is greenfield just because a plan document proposes new architecture.
 - Do not assume a single deployment model across the system; confirm whether a service is a managed app, a remote workload, or an internal stateful Compose service.
 - If the short-form overview conflicts with older session-log notes, prefer the overview unless the user says otherwise or you verify a more recent change.
