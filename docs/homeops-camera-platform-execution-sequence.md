@@ -93,6 +93,10 @@ Preferred materialization path:
 ./scripts/render-edge-runtime.sh \
   --input deploy/edge/runtime.local.json \
   --env-out deploy/edge/.env
+
+./scripts/render-frigate-config.sh \
+  --input deploy/edge/runtime.local.json \
+  --config-out /srv/homeops-camera/config/frigate/config.yml
 ```
 
 ### 4. Validate Camera And Host
@@ -103,6 +107,7 @@ Run:
 ./scripts/validate-runtime-env.sh <runtime-env-file>
 ./scripts/bootstrap-edge.sh
 ./scripts/validate-camera.sh
+./scripts/edge-preflight.sh <runtime-env-file>
 ./scripts/smoke-test.sh
 ```
 
