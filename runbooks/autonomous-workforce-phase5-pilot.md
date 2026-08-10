@@ -117,3 +117,33 @@ dashboard notes. Only then consider widening: a second task, then a second
 repository, then `EXECUTION_MAX_CONCURRENT=2`. Phase 6 (Claude backend,
 escalation, premium budget caps) starts only after the local pipeline is
 boring.
+
+## Phase 6 — Enabling premium escalation (after the local pipeline is boring)
+
+The Claude backend ships default-off. It drives the Claude Code CLI
+headlessly in the isolated worktree (file tools only, no Bash, no git, no
+SCM credentials in its environment) and records cost/token actuals per
+attempt. To enable, add to the conductor `.env` and restart:
+
+```text
+EXECUTION_PREMIUM_ENABLED=1
+EXECUTION_PREMIUM_DAILY_USD=10
+EXECUTION_CLAUDE_MAX_COST_USD=3
+EXECUTION_CLAUDE_MODEL=claude-opus-5
+```
+
+The conductor host must have the `claude` CLI installed and authenticated.
+Behavior once enabled:
+
+- tasks with `execution_complexity: "high"` route directly to Claude
+- local failures with an escalation-eligible category (validation_failed,
+  capability_gap, context_too_large, patch_apply_failed, model_timeout)
+  escalate to one Claude child attempt (`parent_attempt_id` links them;
+  raise with EXECUTION_PREMIUM_MAX_ATTEMPTS)
+- the daily USD cap halts all premium dispatch when spent (local
+  continues); per-attempt cost breaches record `budget_exhausted`
+- `GET /execution/status` shows the premium ledger alongside the breakers
+
+First premium pilot: author one task the 14B has already failed (task 153
+on pilot-sandbox is the natural candidate — reopen it) and watch the
+escalation chain land a PR.
