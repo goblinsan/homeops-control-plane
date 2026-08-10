@@ -6,9 +6,11 @@
 #
 #   - the default branch has a protection rule
 #   - direct pushes are restricted to an explicit allowlist of humans
-#   - merges are restricted to the same allowlist
+#   - merges are restricted to the same allowlist, plus any --merge-user
+#     machine identities (repositories with merge_policy=auto_on_validation)
 #   - the bot identity is NOT in either allowlist
-#   - the bot identity is a plain "write" collaborator (never admin)
+#   - a merge-user identity is NOT in the push allowlist
+#   - the bot and merge-user identities are plain "write" collaborators
 #
 # The policy tables in project-dashboard are routing hints; this server-side
 # configuration is the invariant. Verify mode is what the conductor's
@@ -41,6 +43,7 @@ BRANCH="main"
 BOT_USER=""
 MODE=""
 ALLOW_USERS=()
+MERGE_USERS=()
 
 log() { printf '[forgejo-branch-protection] %s\n' "$*"; }
 err() { printf '[forgejo-branch-protection] ERROR: %s\n' "$*" >&2; }
@@ -63,6 +66,8 @@ Options:
   --branch <name>       Protected branch (default: main)
   --allow-user <name>   Human allowed to push/merge the protected branch
                         (repeatable; required for --apply)
+  --merge-user <name>   Machine identity allowed to MERGE but never push
+                        (repeatable; for merge_policy=auto_on_validation)
   --bot <name>          Bot identity that must be excluded from the
                         allowlists and hold plain write permission
   --verify              Check the contract; exit non-zero on any violation
@@ -77,6 +82,7 @@ while [[ $# -gt 0 ]]; do
     --repo) [[ $# -ge 2 ]] || die "--repo requires a value"; REPO="$2"; shift 2 ;;
     --branch) [[ $# -ge 2 ]] || die "--branch requires a value"; BRANCH="$2"; shift 2 ;;
     --allow-user) [[ $# -ge 2 ]] || die "--allow-user requires a value"; ALLOW_USERS+=("$2"); shift 2 ;;
+    --merge-user) [[ $# -ge 2 ]] || die "--merge-user requires a value"; MERGE_USERS+=("$2"); shift 2 ;;
     --bot) [[ $# -ge 2 ]] || die "--bot requires a value"; BOT_USER="$2"; shift 2 ;;
     --verify) MODE="verify"; shift ;;
     --apply) MODE="apply"; shift ;;
@@ -97,6 +103,9 @@ fi
 if [[ -n "$BOT_USER" ]]; then
   for u in "${ALLOW_USERS[@]:-}"; do
     [[ "$u" == "$BOT_USER" ]] && die "--bot ${BOT_USER} must not also be an --allow-user"
+  done
+  for u in "${MERGE_USERS[@]:-}"; do
+    [[ "$u" == "$BOT_USER" ]] && die "--bot ${BOT_USER} must not also be a --merge-user"
   done
 fi
 
@@ -121,6 +130,10 @@ allowlist_json() {
   printf '%s\n' "${ALLOW_USERS[@]}" | jq -R . | jq -s .
 }
 
+merge_allowlist_json() {
+  printf '%s\n' "${ALLOW_USERS[@]}" "${MERGE_USERS[@]:-}" | jq -R . | jq -s '[.[] | select(length > 0)]'
+}
+
 find_rule() {
   api GET "/repos/${OWNER}/${REPO}/branch_protections"
   [[ "$HTTP_CODE" == "200" ]] || die "Listing branch protections failed (HTTP ${HTTP_CODE})"
@@ -135,6 +148,7 @@ apply_protection() {
   payload="$(jq -n \
     --arg branch "$BRANCH" \
     --argjson allow "$(allowlist_json)" \
+    --argjson merge_allow "$(merge_allowlist_json)" \
     '{
       rule_name: $branch,
       branch_name: $branch,
@@ -142,7 +156,7 @@ apply_protection() {
       enable_push_whitelist: true,
       push_whitelist_usernames: $allow,
       enable_merge_whitelist: true,
-      merge_whitelist_usernames: $allow
+      merge_whitelist_usernames: $merge_allow
     }')"
 
   if find_rule; then
@@ -160,6 +174,13 @@ apply_protection() {
     [[ "$HTTP_CODE" == "204" || "$HTTP_CODE" == "200" ]] || die "Adding ${BOT_USER} as write collaborator failed (HTTP ${HTTP_CODE})"
     log "Ensured ${BOT_USER} is a write collaborator"
   fi
+
+  for mu in "${MERGE_USERS[@]:-}"; do
+    [[ -n "$mu" ]] || continue
+    api PUT "/repos/${OWNER}/${REPO}/collaborators/${mu}" '{"permission":"write"}'
+    [[ "$HTTP_CODE" == "204" || "$HTTP_CODE" == "200" ]] || die "Adding ${mu} as write collaborator failed (HTTP ${HTTP_CODE})"
+    log "Ensured merge user ${mu} is a write collaborator"
+  done
 }
 
 verify_protection() {
@@ -192,6 +213,20 @@ verify_protection() {
     err "Merging into ${BRANCH} is not allowlisted, or the bot is in the merge allowlist"
     failures=$((failures + 1))
   fi
+
+  for mu in "${MERGE_USERS[@]:-}"; do
+    [[ -n "$mu" ]] || continue
+    local merge_user_push_ok
+    merge_user_push_ok="$(jq --arg mu "$mu" '
+      if .enable_push == false then true
+      elif (.enable_push_whitelist == true) then
+        ((.push_whitelist_usernames // []) | index($mu) | not)
+      else false end' "$WORK_DIR/rule.json")"
+    if [[ "$merge_user_push_ok" != "true" ]]; then
+      err "Merge user ${mu} must not be in the push allowlist for ${BRANCH}"
+      failures=$((failures + 1))
+    fi
+  done
 
   if [[ -n "$BOT_USER" ]]; then
     api GET "/repos/${OWNER}/${REPO}/collaborators/${BOT_USER}/permission"

@@ -130,3 +130,44 @@ curl -sS -X PATCH "$DASHBOARD_URL/projects/<projectId>/repositories/<repoId>" \
 When every box is checked for a repository, it is a valid Phase 5 pilot
 target. The remaining Phase 2 item — the conductor refusing to dispatch when
 `--verify` fails — lands with the conductor work in Phase 3A.
+
+## Addendum — Auto-merge repositories (merge_policy=auto_on_validation)
+
+The original contract ("no autonomous merge, ever") was deliberately amended
+once review-outcome evidence justified a hands-off pipeline: every pilot and
+node-acceptance PR was merged by the operator `accepted_as_is`. Repositories
+may now opt in to conductor auto-merge, one at a time, on evidence.
+
+The enforcement model gains a second machine identity, with server-side
+separation of powers:
+
+| Identity | Push to `main` | Merge PRs | Held by |
+| --- | --- | --- | --- |
+| execution bot (e.g. `conductor-bot`) | denied | denied | TrustedGit (branch pushes only) |
+| merge user (e.g. `conductor-merge-bot`) | denied | allowed | conductor merge step only |
+| execution backend (the model process) | no credential | no credential | — |
+
+Provisioning a repository for auto-merge:
+
+1. Create the merge user in Forgejo and a scoped token for it; store the
+   token in secret tooling and set it as `FORGEJO_MERGE_TOKEN` in the
+   conductor environment. The env scrub already strips `FORGEJO_*` from
+   execution backends.
+2. Re-apply protection with the merge user in the merge allowlist only:
+
+   ```bash
+   ./scripts/forgejo-branch-protection.sh \
+     --owner <owner> --repo <repo> --branch main \
+     --allow-user <operator> --bot conductor-bot \
+     --merge-user conductor-merge-bot --apply
+   ```
+
+   `--verify` now also asserts the merge user is absent from the push
+   allowlist.
+3. Flip the repository row: `merge_policy: "auto_on_validation"` (dashboard
+   schema 2.8.0). The default remains `human_review`.
+
+Behavior: after validation passes and the PR exists, the conductor merges it
+and settles the task to `done` instead of `in_review`. A failed merge
+degrades to the human-review flow (PR left open, task `in_review`). Enable
+per repository only after a streak of `accepted_as_is` review outcomes there.
