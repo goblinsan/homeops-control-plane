@@ -106,3 +106,28 @@ curl "$DASHBOARD_URL/execution/attempts?task_id=<id>"
 A rewritten task goes back to `status: open` and will be re-claimed; budget
 counting is per-task, so prefer a fresh task over endlessly reopening one
 with a burned budget.
+
+## 7. Agent interface (token-free lifecycle automation)
+
+`scripts/workq.sh` wraps the entire lifecycle in deterministic commands so
+any agent, cron job, or human can operate the queue without LLM involvement.
+Configure `WORKQ_DASHBOARD_URL`, `WORKQ_CONDUCTOR_URL`,
+`WORKQ_CONDUCTOR_KEY` in the environment (keep them in a private env file).
+
+```bash
+workq.sh add <projectId> <repoId> --title "…" --description-file task.md \
+        --priority 300 --complexity low --label enhancement
+workq.sh board                 # whole portfolio at a glance
+workq.sh attempts <taskId>     # attempt history, failure categories, PR links
+workq.sh review <pid> <tid> accepted_as_is "optional notes"
+workq.sh reopen <pid> <tid>    # requeue (also used to unblock a held task)
+workq.sh resume|pause|status   # dispatch control
+```
+
+`add` refuses descriptions missing the CONTEXT/TARGET/CHANGE/ACCEPTANCE
+sections — the contract is enforced at intake.
+
+**Sequential tasks on one file:** worktrees clone `main`, so a task that
+edits a file created by an earlier task must not become claimable until the
+earlier PR is *merged*. Queue the first task `open` and the successors
+`blocked`; after each merge + `review`, `reopen` the next one.
