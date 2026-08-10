@@ -710,12 +710,32 @@ Exit criteria: no manual coding intervention; no merge, no default-branch
 push, no secret mutation, no deploy; recovery sweep tested by killing the
 conductor mid-attempt and observing correct reconciliation.
 
+Current operational path to the pilot:
+
+1. Run the Phase 2 enforcement runbook on the pilot repository: bot identity,
+   apply-mode protection, scoped token, and fail-closed verification. Nothing
+   becomes writable until the verification step passes.
+2. Review and merge `feature/attempt-runner-3a`; it carries the Phase
+   3A/3B/3C/4 implementation as one reviewable unit.
+3. Register the pilot task with `selected_repository_id`; enable only the
+   pilot repository and project by setting the repository's
+   `write_enabled`/`pr_enabled` flags and the project's
+   `automation_enabled` flag.
+4. Start the conductor with dispatch gated to the pilot only:
+   `EXECUTION_DISPATCH_ENABLED=1`,
+   `EXECUTION_PROJECT_IDS=<pilot-project>`, and `EXECUTION_LOCAL_MODEL=<model>`.
+5. Include crash recovery in the pilot: terminate the conductor mid-attempt,
+   restart it, and verify the sweep reconciles the attempt from observable
+   state without duplicating the branch or PR.
+
 ### Phase 6 — Claude Backend and Escalation
 
 - `ClaudeExecutionBackend` with per-attempt caps and cancellation
 - escalation: child attempts via `parent_attempt_id`, driven by the failure
   taxonomy
 - daily premium spend cap live before the first real premium attempt
+- build Phase 6 only after the Phase 5 local pilot proves the full
+  dashboard-to-Forgejo review-ready loop, including crash recovery
 
 ### Phase 7 — Premium Pilot and Portfolio Rollout
 
