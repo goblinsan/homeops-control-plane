@@ -144,6 +144,20 @@ find_rule() {
 }
 
 apply_protection() {
+  # Collaborators must exist before the protection rule references them:
+  # Forgejo silently drops non-collaborator usernames from whitelists.
+  if [[ -n "$BOT_USER" ]]; then
+    api PUT "/repos/${OWNER}/${REPO}/collaborators/${BOT_USER}" '{"permission":"write"}'
+    [[ "$HTTP_CODE" == "204" || "$HTTP_CODE" == "200" ]] || die "Adding ${BOT_USER} as write collaborator failed (HTTP ${HTTP_CODE})"
+    log "Ensured ${BOT_USER} is a write collaborator"
+  fi
+  for mu in "${MERGE_USERS[@]:-}"; do
+    [[ -n "$mu" ]] || continue
+    api PUT "/repos/${OWNER}/${REPO}/collaborators/${mu}" '{"permission":"write"}'
+    [[ "$HTTP_CODE" == "204" || "$HTTP_CODE" == "200" ]] || die "Adding ${mu} as write collaborator failed (HTTP ${HTTP_CODE})"
+    log "Ensured merge user ${mu} is a write collaborator"
+  done
+
   local payload
   payload="$(jq -n \
     --arg branch "$BRANCH" \
@@ -169,18 +183,6 @@ apply_protection() {
     log "Created protection rule for ${OWNER}/${REPO}@${BRANCH}"
   fi
 
-  if [[ -n "$BOT_USER" ]]; then
-    api PUT "/repos/${OWNER}/${REPO}/collaborators/${BOT_USER}" '{"permission":"write"}'
-    [[ "$HTTP_CODE" == "204" || "$HTTP_CODE" == "200" ]] || die "Adding ${BOT_USER} as write collaborator failed (HTTP ${HTTP_CODE})"
-    log "Ensured ${BOT_USER} is a write collaborator"
-  fi
-
-  for mu in "${MERGE_USERS[@]:-}"; do
-    [[ -n "$mu" ]] || continue
-    api PUT "/repos/${OWNER}/${REPO}/collaborators/${mu}" '{"permission":"write"}'
-    [[ "$HTTP_CODE" == "204" || "$HTTP_CODE" == "200" ]] || die "Adding ${mu} as write collaborator failed (HTTP ${HTTP_CODE})"
-    log "Ensured merge user ${mu} is a write collaborator"
-  done
 }
 
 verify_protection() {
@@ -224,6 +226,13 @@ verify_protection() {
       else false end' "$WORK_DIR/rule.json")"
     if [[ "$merge_user_push_ok" != "true" ]]; then
       err "Merge user ${mu} must not be in the push allowlist for ${BRANCH}"
+      failures=$((failures + 1))
+    fi
+    local merge_user_listed
+    merge_user_listed="$(jq --arg mu "$mu" '
+      (.enable_merge_whitelist == true) and (((.merge_whitelist_usernames // []) | index($mu)) != null)' "$WORK_DIR/rule.json")"
+    if [[ "$merge_user_listed" != "true" ]]; then
+      err "Merge user ${mu} is missing from the merge allowlist for ${BRANCH} (Forgejo drops non-collaborators silently)"
       failures=$((failures + 1))
     fi
   done
