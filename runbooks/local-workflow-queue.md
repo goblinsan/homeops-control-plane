@@ -112,7 +112,10 @@ with a burned budget.
 `scripts/workq.sh` wraps the entire lifecycle in deterministic commands so
 any agent, cron job, or human can operate the queue without LLM involvement.
 Configure `WORKQ_DASHBOARD_URL`, `WORKQ_CONDUCTOR_URL`,
-`WORKQ_CONDUCTOR_KEY` in the environment (keep them in a private env file).
+`WORKQ_CONDUCTOR_KEY`, and `WORKQ_CONTRACT_PARSER` in the environment (keep
+them in a private env file). `WORKQ_CONTRACT_PARSER` must point at an
+executable directed-task parser. For the local conductor checkout, use the
+wrapper at `<task-flow-conductor>/scripts/parse-directed-task`.
 
 ```bash
 workq.sh add <projectId> <repoId> --title "…" --description-file task.md \
@@ -124,8 +127,12 @@ workq.sh reopen <pid> <tid>    # requeue (also used to unblock a held task)
 workq.sh resume|pause|status   # dispatch control
 ```
 
-`add` refuses descriptions missing the CONTEXT/TARGET/CHANGE/ACCEPTANCE
-sections — the contract is enforced at intake.
+`add` is fail-closed: it calls `WORKQ_CONTRACT_PARSER` and refuses to create a
+dashboard task unless the parser accepts the full directed-task contract. The
+old grep-only section check is intentionally gone. Valid tasks are created with
+durable `target_entries`, `target_files`, and `reference_files` metadata for
+the local backend. `target_entries` is the execution authority for create vs.
+modify behavior; the backend must not re-read file lists from task prose.
 
 **Sequential tasks on one file:** worktrees clone `main`, so a task that
 edits a file created by an earlier task must not become claimable until the

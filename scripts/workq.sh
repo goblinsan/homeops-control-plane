@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/bin/bash
 # workq — deterministic queue/track interface for the local execution
 # workflow (project-dashboard + task-flow-conductor). Designed so agents and
 # automation can operate the full task lifecycle without LLM involvement.
@@ -7,6 +7,7 @@
 #   WORKQ_DASHBOARD_URL   – project-dashboard base URL
 #   WORKQ_CONDUCTOR_URL   – task-flow-conductor base URL
 #   WORKQ_CONDUCTOR_KEY   – conductor bearer key (only for resume/pause/status)
+#   WORKQ_CONTRACT_PARSER – executable directed-task parser path
 #
 # Commands:
 #   workq add <projectId> <repoId> --title <t> --description-file <f>
@@ -18,21 +19,30 @@
 #             – record review outcome on the latest succeeded attempt and mark the task done
 #             – outcomes: accepted_as_is accepted_with_minor_edits accepted_with_major_edits rejected
 #   workq reopen <projectId> <taskId>  – requeue a task (status open, claim cleared)
-#   workq drop <projectId> <taskId>    – mark a task cancelled without running it
+#   workq drop <projectId> <taskId>    – archive a task without running it
 #   workq resume | pause | status      – conductor dispatch control
 #
 # shellcheck shell=bash
 set -euo pipefail
 
+if [[ -z "${WORKQ_DASHBOARD_URL:-}" || -z "${WORKQ_CONDUCTOR_URL:-}" || -z "${WORKQ_CONDUCTOR_KEY:-}" ]]; then
+  if [[ -f "${HOME}/.homeops/workq.env" ]]; then
+    set -a
+    # shellcheck source=/dev/null
+    source "${HOME}/.homeops/workq.env"
+    set +a
+  fi
+fi
+
 die() { printf 'workq: %s\n' "$*" >&2; exit 1; }
 require() { [[ -n "${!1:-}" ]] || die "$1 is not set"; }
 
-json() { python3 -c "$1" "${@:2}"; }
+json() { node -e "$1" "${@:2}"; }
 
 dash() {
   require WORKQ_DASHBOARD_URL
   local method="$1" path="$2" body="${3:-}"
-  local args=(-sS -m 30 -X "$method" -H 'Content-Type: application/json')
+  local args=(-fsS -m 30 -X "$method" -H 'Content-Type: application/json')
   [[ -n "$body" ]] && args+=(--data "$body")
   curl "${args[@]}" "${WORKQ_DASHBOARD_URL%/}${path}"
 }
@@ -40,7 +50,7 @@ dash() {
 cond() {
   require WORKQ_CONDUCTOR_URL; require WORKQ_CONDUCTOR_KEY
   local method="$1" path="$2"
-  curl -sS -m 30 -X "$method" -H "Authorization: Bearer ${WORKQ_CONDUCTOR_KEY}" "${WORKQ_CONDUCTOR_URL%/}${path}"
+  curl -fsS -m 30 -X "$method" -H "Authorization: Bearer ${WORKQ_CONDUCTOR_KEY}" "${WORKQ_CONDUCTOR_URL%/}${path}"
 }
 
 cmd="${1:-}"; shift || true
@@ -60,38 +70,49 @@ case "$cmd" in
     done
     [[ -n "$title" && -n "$descfile" ]] || die "--title and --description-file are required"
     [[ -f "$descfile" ]] || die "description file not found: $descfile"
-    grep -q 'CONTEXT' "$descfile" && grep -q 'TARGET' "$descfile" \
-      && grep -q 'CHANGE' "$descfile" && grep -q 'ACCEPTANCE' "$descfile" \
-      || die "description must contain CONTEXT/TARGET/CHANGE/ACCEPTANCE (see directed-task-contract.md)"
-    body="$(python3 - "$title" "$descfile" "$priority" "$complexity" "${labels[@]:-}" <<'PYEOF'
-import json, sys
-title, descfile, priority, complexity, *labels = sys.argv[1:]
-print(json.dumps({
-    "title": title,
-    "description": open(descfile).read(),
-    "status": "open",
-    "priority_score": int(priority),
-    "execution_complexity": complexity,
-    "labels": [l for l in labels if l],
-}))
-PYEOF
-)"
+    require WORKQ_CONTRACT_PARSER
+    [[ -x "$WORKQ_CONTRACT_PARSER" ]] || die "WORKQ_CONTRACT_PARSER is not executable: $WORKQ_CONTRACT_PARSER"
+    parsed="$("$WORKQ_CONTRACT_PARSER" "$descfile")" || die "description failed directed-task contract parsing"
+    body="$(node -e 'const fs = require("fs");
+const [title, descfile, priority, complexity, repo, parsedJson, ...labels] = process.argv.slice(1);
+const parsed = JSON.parse(parsedJson);
+console.log(JSON.stringify({
+  title,
+  description: fs.readFileSync(descfile, "utf8"),
+  status: "open",
+  priority_score: Number(priority),
+  execution_complexity: complexity,
+  selected_repository_id: Number(repo),
+  target_entries: parsed.targets,
+  target_files: parsed.target_files,
+  reference_files: parsed.reference_files,
+  labels: labels.filter(Boolean),
+}));' "$title" "$descfile" "$priority" "$complexity" "$repo" "$parsed" "${labels[@]:-}")"
     created="$(dash POST "/projects/${project}/tasks" "$body")"
-    task_id="$(printf '%s' "$created" | json 'import json,sys; print(json.load(sys.stdin).get("id",""))')"
+    task_id="$(printf '%s' "$created" | json 'const fs = require("fs"); const body = JSON.parse(fs.readFileSync(0, "utf8")); console.log(body.id || "");')"
     [[ -n "$task_id" ]] || die "task creation failed: $created"
-    dash PATCH "/projects/${project}/tasks/${task_id}" "{\"selected_repository_id\": ${repo}}" >/dev/null
+    patch_body="$(node -e 'const [repo, parsedJson] = process.argv.slice(1);
+const parsed = JSON.parse(parsedJson);
+console.log(JSON.stringify({
+  selected_repository_id: Number(repo),
+  target_entries: parsed.targets,
+  target_files: parsed.target_files,
+  reference_files: parsed.reference_files,
+}));' "$repo" "$parsed")"
+    dash PATCH "/projects/${project}/tasks/${task_id}" "$patch_body" >/dev/null
     printf 'queued task %s (project %s, repo %s, priority %s)\n' "$task_id" "$project" "$repo" "$priority"
     ;;
   board)
     for state in running queued awaiting_review blocked recently_completed; do
       printf '== %s ==\n' "$state"
       dash GET "/portfolio?state=${state}" | json '
-import json,sys
-d=json.load(sys.stdin)
-items=d if isinstance(d,list) else d.get("tasks") or d.get("data") or d.get("items") or []
-for t in items:
-    print(" ", t.get("task_id") or t.get("id"), "|", "p"+str(t.get("project_id")), "|", (t.get("title") or "")[:64], "|", t.get("attempt_status") or t.get("status") or "")
-if not items: print("  (none)")'
+const fs = require("fs");
+const d = JSON.parse(fs.readFileSync(0, "utf8"));
+const items = Array.isArray(d) ? d : (d.tasks || d.data || d.items || []);
+for (const t of items) {
+  console.log(" ", t.task_id || t.id, "|", "p" + String(t.project_id), "|", String(t.title || "").slice(0, 64), "|", t.attempt_status || t.status || "");
+}
+if (!items.length) console.log("  (none)");'
     done
     ;;
   list)
@@ -102,25 +123,32 @@ if not items: print("  (none)")'
   attempts)
     task="${1:?taskId}"
     dash GET "/execution/attempts?task_id=${task}" | json '
-import json,sys
-for a in json.load(sys.stdin)["data"]:
-    print({k:a.get(k) for k in ("id","attempt_number","status","backend","failure_category","pr_url","review_outcome")})'
+const fs = require("fs");
+const body = JSON.parse(fs.readFileSync(0, "utf8"));
+for (const a of body.data) {
+  console.log(JSON.stringify({
+    id: a.id,
+    attempt_number: a.attempt_number,
+    status: a.status,
+    backend: a.backend,
+    failure_category: a.failure_category,
+    pr_url: a.pr_url,
+    review_outcome: a.review_outcome,
+  }));
+}'
     ;;
   review)
     project="${1:?projectId}"; task="${2:?taskId}"; outcome="${3:?outcome}"; notes="${4:-}"
     attempt="$(dash GET "/execution/attempts?task_id=${task}" | json '
-import json,sys
-d=[a for a in json.load(sys.stdin)["data"] if a["status"]=="succeeded" and a.get("pr_url")]
-print(d[0]["id"] if d else "")')"
+const fs = require("fs");
+const body = JSON.parse(fs.readFileSync(0, "utf8"));
+const attempts = body.data.filter((a) => a.status === "succeeded" && a.pr_url);
+console.log(attempts.length ? attempts[0].id : "");')"
     [[ -n "$attempt" ]] || die "no succeeded attempt with a PR found for task ${task}"
-    body="$(python3 - "$outcome" "$notes" <<'PYEOF'
-import json, sys
-outcome, notes = sys.argv[1], sys.argv[2]
-payload = {"review_outcome": outcome}
-if notes: payload["review_notes"] = notes
-print(json.dumps(payload))
-PYEOF
-)"
+    body="$(node -e 'const [outcome, notes] = process.argv.slice(1);
+const payload = { review_outcome: outcome };
+if (notes) payload.review_notes = notes;
+console.log(JSON.stringify(payload));' "$outcome" "$notes")"
     dash PATCH "/execution/attempts/${attempt}" "$body" >/dev/null
     dash PATCH "/projects/${project}/tasks/${task}" '{"status":"done"}' >/dev/null
     printf 'task %s done; attempt %s outcome=%s\n' "$task" "$attempt" "$outcome"
@@ -132,8 +160,8 @@ PYEOF
     ;;
   drop)
     project="${1:?projectId}"; task="${2:?taskId}"
-    dash PATCH "/projects/${project}/tasks/${task}" '{"status":"cancelled"}' >/dev/null
-    printf 'task %s cancelled\n' "$task"
+    dash PATCH "/projects/${project}/tasks/${task}" '{"status":"archived"}' >/dev/null
+    printf 'task %s archived\n' "$task"
     ;;
   resume) cond POST /execution/resume; echo ;;
   pause) cond POST /execution/pause; echo ;;
