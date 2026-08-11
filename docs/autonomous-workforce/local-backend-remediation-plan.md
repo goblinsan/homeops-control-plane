@@ -1,7 +1,9 @@
 # Local Execution Remediation Plan
 
-Status: draft for review, 2026-08-10. No implementation begins until this
-plan is approved.
+Status: draft rev 2, 2026-08-10 — incorporates external review findings
+(artifact identity, escalation quarantine, deterministic target parsing,
+expanded replay corpus). No implementation begins until this plan is
+approved.
 
 ## What happened, plainly
 
@@ -33,7 +35,14 @@ Verified failure mechanics (task-flow-conductor, `src/execution/localBackend.ts`
 
 Failure corpus for replay: pilot-sandbox tasks 155/157 (attempts 18, 20,
 23, 25 — `patch_apply_failed` with target in context), project-dashboard
-task 159 (attempt 27 `validation_failed`, attempt 28 `patch_apply_failed`).
+task 159 (attempt 27 `validation_failed`, attempt 28 `patch_apply_failed`),
+and — most diagnostic — the server-registration series, tasks 165–168
+(attempts 32–41): four progressively narrower briefs to edit existing
+`src/server.ts` from clean `main`, all failing with `patch_apply_failed`
+on that file ("hunk context does not match" / stale content) or downstream
+`validation_failed`. Task 164 (create `src/routes/ui.ts` alone) succeeded
+locally and serves as the positive control: new-file creation works;
+existing-file editing under the diff contract is the broken class.
 
 ## Principles
 
@@ -64,6 +73,53 @@ task 159 (attempt 27 `validation_failed`, attempt 28 `patch_apply_failed`).
 | 8 | Stepwise multi-stage plan execution | `implementationStages.ts` | **Defer** | Directed tasks are single-step by contract; multi-step work is decomposed at queue time |
 | 9 | Context persona / repo analysis pass | `personas.ts` context | **Drop for directed tasks** | CONTEXT section is authored by the task writer; a model-derived repo summary is redundant here |
 | 10 | Persona/message orchestration engine | `workflows/`, being retired per conductor migration | **Not ported** | The engine is the delivery vehicle, not the lesson; extraction (not delegation) avoids re-entangling the retirement path |
+
+## Contract changes required outside the backend
+
+**C1 — Per-attempt artifact identity (review finding).** The current
+artifact contract cannot honor "every attempt leaves evidence": the
+conductor's `ArtifactAPI` does not send `attempt_id` at all, and the
+dashboard's upsert identity is `(project_id, task_id, kind, iteration)` —
+`attempt_id` is stored but not part of identity, so attempt 2's prompt
+artifact would silently overwrite attempt 1's. Changes:
+
+- conductor `PublishArtifactInput` gains `attemptId` and sends it;
+- dashboard upsert lookup and the `idx_artifacts_upsert_key` unique index
+  extend identity with `COALESCE(attempt_id, -1)` (schema bump; the index
+  must be dropped and recreated);
+- test: two attempts on one task publishing the same artifact kind yield
+  two distinct rows, each retrievable by attempt.
+
+**C2 — Deterministic target-file metadata (review finding).** TARGET files
+must never be recovered from prose by regex at execution time. Changes:
+
+- the directed-task contract's TARGET section adopts a strict grammar
+  (one file per line: `- Create <path>` or `- Modify <path>`);
+- `workq add` parses it at intake with a shared `DirectedTaskContract`
+  parser and **refuses** tasks whose TARGET cannot be parsed
+  unambiguously; the parsed list is stored on the task as structured
+  metadata (new `target_files` JSON field on tasks, schema bump) — the
+  backend consumes only the structured field;
+- pre-model guard: every `Modify` target must exist in the worktree and
+  fit the context budget, else the attempt fails before any model call
+  with a distinct failure category; the parsed target list and the guard
+  verdict persist as an attempt artifact.
+
+## Rollout gate: no premium spend during re-earning (review finding)
+
+`patch_apply_failed` and `validation_failed` are escalation-eligible, so
+with premium enabled every remediation-validation failure would spawn a
+Claude child attempt — spending money to mask exactly the signal being
+measured. Gate:
+
+- `EXECUTION_PREMIUM_ENABLED` stays `0` (its current state) until the
+  replay corpus and the acceptance run below pass; re-enabling premium is
+  an explicit post-acceptance decision, not a side effect;
+- test: an escalation-eligible local failure with premium disabled settles
+  the task (open or human_required per budget) and creates **no** child
+  attempt — locked as a regression test, not just current behavior;
+- follow-up (not this plan): per-stream escalation policy so a validation
+  stream can be local-only while other streams escalate.
 
 ## Target architecture
 
@@ -97,9 +153,17 @@ there is exactly one implementation of each lesson during the transition.
    a distinct category. Regression test uses a project-dashboard-shaped
    fixture tree.
 2. **Replay corpus** — recorded prompts/settings from failed attempts
-   (18/20/23/25/27/28) reconstructed as fixtures; the remediated pipeline
-   must produce applying edits where the recorded transcript shows the
-   model's *content* was right and only the format failed.
+   (18/20/23/25/27/28 and the server-registration series 32–41)
+   reconstructed as fixtures; the remediated pipeline must produce
+   applying edits where the recorded transcript shows the model's
+   *content* was right and only the format failed. The
+   "modify an existing server file from clean main" case (tasks 165–168)
+   is the primary fixture; task 164's succeeding new-file case is the
+   regression control.
+2a. **Artifact identity** — two attempts on one task retain two distinct
+   prompt/response artifacts (contract change C1).
+2b. **No-escalation gate** — an escalation-eligible local failure with
+   premium disabled spawns no child attempt (rollout gate).
 3. **Parity** — port the legacy harness's existing tests for each extracted
    module rather than writing new ones where they exist.
 4. **Gate** — full conductor suite stays green; no changes to runner/SCM
@@ -125,5 +189,10 @@ there is exactly one implementation of each lesson during the transition.
 - **D3 — Artifact retention.** Recommend: store prompt + responses for all
   attempts (not just failures) while the local pipeline is re-earning
   trust; revisit volume later.
-- **D4 — Task 159.** Recommend: leave it `blocked` as evidence; queue the
-  remediation validation as a fresh task when the port lands.
+- **D4 — Tasks 159/163/165–168.** Recommend: leave them `blocked` as
+  evidence; queue the remediation validation as fresh tasks when the port
+  lands (fresh budgets, and the acceptance run reuses their exact briefs).
+- **D5 — `target_files` storage.** Recommend: a structured `target_files`
+  column on tasks written at intake (C2) rather than run-time prose
+  parsing; the alternative (parse-at-execution with a strict grammar) is
+  acceptable only with the same refuse-on-ambiguity semantics.
