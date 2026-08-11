@@ -1,8 +1,10 @@
 # Local Execution Remediation Plan
 
-Status: draft rev 2, 2026-08-10 — incorporates external review findings
-(artifact identity, escalation quarantine, deterministic target parsing,
-expanded replay corpus). No implementation begins until this plan is
+Status: draft rev 3, 2026-08-10 — rev 2 incorporated external review
+findings (artifact identity, escalation quarantine, deterministic target
+parsing, expanded replay corpus); rev 3 adds retrieval-by-attempt,
+structured reference files, the concrete parser bridge, and full API
+coverage for new task fields. No implementation begins until this plan is
 approved.
 
 ## What happened, plainly
@@ -87,23 +89,49 @@ artifact would silently overwrite attempt 1's. Changes:
 - dashboard upsert lookup and the `idx_artifacts_upsert_key` unique index
   extend identity with `COALESCE(attempt_id, -1)` (schema bump; the index
   must be dropped and recreated);
+- retrieval is per-attempt end to end, not only storage: the dashboard
+  artifact GET route gains an `attempt_id` query filter (today it filters
+  only by `kind`/`latest`/`meta_only`), and the conductor's
+  `FetchArtifactsInput` gains `attemptId`;
 - test: two attempts on one task publishing the same artifact kind yield
-  two distinct rows, each retrievable by attempt.
+  two distinct rows, and a fetch filtered to one attempt returns only that
+  attempt's prompt/response.
 
-**C2 — Deterministic target-file metadata (review finding).** TARGET files
-must never be recovered from prose by regex at execution time. Changes:
+**C2 — Deterministic file metadata (review finding, extended in rev 3).**
+No file list — targets *or* supporting context — is ever recovered from
+prose at execution time. Changes:
 
-- the directed-task contract's TARGET section adopts a strict grammar
-  (one file per line: `- Create <path>` or `- Modify <path>`);
-- `workq add` parses it at intake with a shared `DirectedTaskContract`
-  parser and **refuses** tasks whose TARGET cannot be parsed
-  unambiguously; the parsed list is stored on the task as structured
-  metadata (new `target_files` JSON field on tasks, schema bump) — the
-  backend consumes only the structured field;
-- pre-model guard: every `Modify` target must exist in the worktree and
-  fit the context budget, else the attempt fails before any model call
-  with a distinct failure category; the parsed target list and the guard
-  verdict persist as an attempt artifact.
+- the directed-task contract's TARGET section adopts a strict grammar,
+  one file per line with three verbs:
+  `- Create <path>` | `- Modify <path>` | `- Reference <path>` —
+  `Reference` names read-only context (imitation targets, type sources,
+  files named today inside CHANGE prose). CHANGE remains prose describing
+  the change itself and carries no file lists; the contract doc
+  (`directed-task-contract.md`) is updated in the same change;
+- `workq add` parses the section at intake with the shared
+  `DirectedTaskContract` parser and **refuses** tasks that cannot be
+  parsed unambiguously; the parsed lists are stored on the task as
+  structured metadata (new `target_files` and `reference_files` JSON
+  fields, schema bump) — the backend consumes only the structured fields;
+- **parser bridge (concrete):** the parser lives once, in
+  task-flow-conductor's extracted implementation core
+  (`src/implementation/directedTaskContract.ts`), imported directly by the
+  backend and exposed as a small Node CLI; `workq.sh` invokes the CLI via
+  a `WORKQ_CONTRACT_PARSER` path variable and **fails closed** if the
+  parser is unavailable — the grep check is removed, never kept as a
+  fallback;
+- pre-model guard: every `Modify`/`Reference` file must exist in the
+  worktree, and targets must fit the context budget, else the attempt
+  fails before any model call with a distinct failure category; the parsed
+  lists and the guard verdict persist as an attempt artifact.
+
+**C3 — API coverage for the new task fields (review finding).** A schema
+bump alone is not a contract. `target_files`/`reference_files` must be
+accepted and preserved by task create, bulk create, and patch schemas;
+returned by task GET routes; surfaced through the conductor's task loading
+(`AttemptClient.getTask`) so the backend can consume them; and passed
+through (not stripped by) portfolio views. Round-trip tests cover
+create→get, patch→get, and claim→backend visibility.
 
 ## Rollout gate: no premium spend during re-earning (review finding)
 
@@ -129,9 +157,10 @@ reduced to a thin adapter over an extracted implementation core:
 ```text
 AttemptRunner
   └─ LocalExecutionBackend (interface unchanged)
-       ├─ ContextAssembler      — TARGET/CHANGE files first (full fidelity, fail
-       │                          the attempt early if a named target is missing
-       │                          or over budget), then inventory + remainder
+       ├─ ContextAssembler      — structured target_files + reference_files
+       │                          first (full fidelity, fail the attempt early
+       │                          if a named file is missing or targets exceed
+       │                          budget), then inventory + remainder
        ├─ PromptBuilder         — lineage: legacy lead-engineer contract;
        │                          full-file rewrite blocks, Changed Files list
        ├─ FullFileBlockParser   — extracted from the legacy parser, not rewritten
@@ -160,10 +189,14 @@ there is exactly one implementation of each lesson during the transition.
    "modify an existing server file from clean main" case (tasks 165–168)
    is the primary fixture; task 164's succeeding new-file case is the
    regression control.
-2a. **Artifact identity** — two attempts on one task retain two distinct
-   prompt/response artifacts (contract change C1).
+2a. **Artifact identity + retrieval** — two attempts on one task retain
+   two distinct prompt/response artifacts, and an attempt-filtered fetch
+   returns only its own (contract change C1).
 2b. **No-escalation gate** — an escalation-eligible local failure with
    premium disabled spawns no child attempt (rollout gate).
+2c. **Field round-trip** — `target_files`/`reference_files` survive
+   create→get, patch→get, and claim→backend loading (contract change C3);
+   intake refuses an unparsable TARGET section (C2).
 3. **Parity** — port the legacy harness's existing tests for each extracted
    module rather than writing new ones where they exist.
 4. **Gate** — full conductor suite stays green; no changes to runner/SCM
