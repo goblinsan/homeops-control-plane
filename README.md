@@ -106,6 +106,21 @@ The repo inventory is intended to capture not just clone URLs, but also:
 ./scripts/healthcheck.sh
 ```
 
+### SSH aliases
+
+Render local SSH and HTTP-friendly host aliases from `.inventory/nodes.yaml`:
+
+```bash
+./scripts/render-ssh-config.sh --install-local
+./scripts/render-hosts.sh --install-local
+```
+
+The generated OpenSSH config is written to `.inventory/ssh_config` and included
+from `~/.ssh/config`. The generated hosts snippet is written to `.inventory/hosts`
+and installed into `/etc/hosts` between managed markers. Real node names, LAN IPs,
+usernames, and ports remain in the private inventory output and are not committed
+to this repo.
+
 ---
 
 ## Repository layout
@@ -122,13 +137,20 @@ The repo inventory is intended to capture not just clone URLs, but also:
 │   └── services.schema.json          JSON Schema for services.yaml
 ├── scripts/
 │   ├── fetch-inventory.sh            Download & decrypt inventory from S3
+│   ├── create-forgejo-repo.sh        Create a Forgejo/Gitea repo via API
 │   ├── init-inventory.sh             Create local placeholder inventory files
+│   ├── render-hosts.sh               Render local hosts aliases from inventory
+│   ├── render-ssh-config.sh          Render local OpenSSH aliases from inventory
 │   ├── pack-inventory.sh             Encrypt & upload inventory to S3
-│   └── healthcheck.sh                Validate local inventory files
+│   ├── healthcheck.sh                Validate local inventory files
+│   └── rotate-postgres-app-credential.sh
+│                                      Rotate a Postgres app role + remote DATABASE_URL safely
 └── runbooks/
+    ├── observability-alerting-foundation.md
     ├── debian-workstation-conversion.md
     ├── secure-inventory.md
     ├── node-maintenance.md
+    ├── secret-rotation.md
     └── cold-storage-backup.md
 ```
 
@@ -141,6 +163,8 @@ The repo inventory is intended to capture not just clone URLs, but also:
 | [debian-workstation-conversion.md](runbooks/debian-workstation-conversion.md) | Windows → Debian workstation migration |
 | [secure-inventory.md](runbooks/secure-inventory.md) | How to manage the encrypted inventory bundle |
 | [node-maintenance.md](runbooks/node-maintenance.md) | mdadm RAID rebuild, OS updates, reboots |
+| [observability-alerting-foundation.md](runbooks/observability-alerting-foundation.md) | Monitoring, alerting, mobile integration, and service onboarding contract |
+| [secret-rotation.md](runbooks/secret-rotation.md) | Safe secret rotation patterns without printing values |
 | [cold-storage-backup.md](runbooks/cold-storage-backup.md) | Offline / cold-storage backup and restore |
 
 ---

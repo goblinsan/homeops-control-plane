@@ -17,9 +17,9 @@ CONTEXT
   implementer must know that is not visible in the target files.
 
 TARGET
-  The exact file(s) to create or modify. For modifications, name the
-  functions/sections being touched. Tasks touching more than ~3 files are
-  suspect: split them or route them for planning.
+  One file entry per line, using only the strict grammar below. Tasks
+  touching more than ~3 files are suspect: split them or route them for
+  planning.
 
 CHANGE
   The precise contract of the change: signatures, types, expected behavior,
@@ -34,6 +34,21 @@ ACCEPTANCE
   If acceptance requires a new test, the CHANGE section specifies that test.
 ```
 
+`TARGET` entries must be exactly one of:
+
+```text
+- Create <relative-file-path>
+- Modify <relative-file-path>
+- Reference <relative-file-path>
+```
+
+`Create` and `Modify` entries become durable `target_files`. They also become
+durable `target_entries` preserving the create/modify action for each path.
+`Reference` entries become durable `reference_files` and are read-only context
+for the local backend. Paths must be relative file paths. Absolute paths,
+parent traversal, globs, directory entries, missing paths, ambiguous verbs, and
+conflicting duplicate verbs are rejected at intake.
+
 ## Field mapping (project-dashboard)
 
 | Field | Rule |
@@ -41,6 +56,9 @@ ACCEPTANCE
 | `title` | Imperative summary of CHANGE, ≤ 80 chars |
 | `description` | The four sections above |
 | `selected_repository_id` | **Required** — the claim query skips tasks without it, silently |
+| `target_entries` | **Required for local execution** — action-bearing entries from TARGET |
+| `target_files` | Flat target path list derived from `target_entries`; kept for compatibility and display |
+| `reference_files` | Reference-only context paths from TARGET |
 | `execution_complexity` | `low` for contract-complete single-file work; `medium` when imitation of existing patterns carries part of the load; `high` reserved (routes premium when premium is enabled — it is currently disabled) |
 | `priority_score` | Higher claims first; use it to order the queue |
 | `labels` | Stream tags for tracking (e.g. `enhancement`, `roblox-components`) |
