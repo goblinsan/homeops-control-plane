@@ -71,6 +71,23 @@ ACCEPTANCE
   npm test exits 0.
 EOF
 
+cat > "$TMPDIR/task-two.md" <<'EOF'
+# Second queued task
+
+CONTEXT
+  Test context.
+
+TARGET
+- Modify src/ui.ts
+- Reference src/app.ts
+
+CHANGE
+  Make a small follow-up change.
+
+ACCEPTANCE
+  npm test exits 0.
+EOF
+
 export WORKQ_CONTRACT_PARSER="$TMPDIR/parser-bad"
 if "$ROOT/scripts/workq.sh" add 10 7 --title "Invalid" --description-file "$TMPDIR/task.md" >/dev/null 2>&1; then
   printf 'expected invalid parser to fail\n' >&2
@@ -102,4 +119,23 @@ assert patch["selected_repository_id"] == 7, patch
 assert patch["target_entries"] == [{"action": "modify", "path": "src/ui.ts"}], patch
 assert patch["target_files"] == ["src/ui.ts"], patch
 assert patch["reference_files"] == ["src/app.ts"], patch
+PY
+
+: > "$CALL_LOG"
+"$ROOT/scripts/workq.sh" queue 10 7 "$TMPDIR/task.md" "$TMPDIR/task-two.md" --priority 250 --complexity low >/dev/null
+
+python3 - "$CALL_LOG" <<'PY'
+import json
+import sys
+
+rows = [line.rstrip("\n").split("\t", 2) for line in open(sys.argv[1])]
+assert len(rows) == 4, rows
+first = json.loads(rows[0][2])
+second = json.loads(rows[2][2])
+assert first["title"] == "task", first
+assert first["status"] == "open", first
+assert first["priority_score"] == 250, first
+assert second["title"] == "Second queued task", second
+assert second["status"] == "blocked", second
+assert second["target_entries"] == [{"action": "modify", "path": "src/ui.ts"}], second
 PY

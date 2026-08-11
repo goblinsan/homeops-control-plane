@@ -118,6 +118,8 @@ executable directed-task parser. For the local conductor checkout, use the
 wrapper at `<task-flow-conductor>/scripts/parse-directed-task`.
 
 ```bash
+workq.sh queue <projectId> <repoId> task-1.md task-2.md task-3.md \
+        --priority 300 --complexity low --label enhancement
 workq.sh add <projectId> <repoId> --title "…" --description-file task.md \
         --priority 300 --complexity low --label enhancement
 workq.sh board                 # whole portfolio at a glance
@@ -134,7 +136,15 @@ durable `target_entries`, `target_files`, and `reference_files` metadata for
 the local backend. `target_entries` is the execution authority for create vs.
 modify behavior; the backend must not re-read file lists from task prose.
 
+Prefer `queue` for normal use. It accepts one or more markdown task files,
+derives each title from the first `# Heading` in the file, and creates the
+tasks after the same parser-gated intake as `add`. When multiple files are
+provided, only the first task is created `open`; successors are created
+`blocked` by default so a chain cannot run against stale `main`. Pass
+`--open-all` only for independent tasks that can safely run in parallel.
+
 **Sequential tasks on one file:** worktrees clone `main`, so a task that
 edits a file created by an earlier task must not become claimable until the
 earlier PR is *merged*. Queue the first task `open` and the successors
-`blocked`; after each merge + `review`, `reopen` the next one.
+`blocked`; after each merge + `review`, `reopen` the next one. `workq queue`
+does the initial open/blocked setup for you.
