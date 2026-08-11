@@ -22,14 +22,13 @@ lessons:
 - artifacts capture prompts, outputs, parser results, and accumulated rewrites
 - local execution stays behind the provider-neutral backend contract
 
-The main remaining parity gaps are operational repair mechanics around the
-full-file path:
+The main remaining parity gaps are now lower-risk operating choices rather
+than broken local execution mechanics:
 
-- rollback/checkpoint handling after failed validation repair
-- deterministic import-path repair reuse
-- repeated no-op detection
-- richer validation-target retry directives
-- local token accounting
+- backend-level baseline validation delta remains deferred
+- richer validation-target retry directives can still be tuned with more live
+  transcripts
+- repository/language-specific deterministic repairs remain plugin candidates
 
 The old stepwise planning and information-request loop should not be restored
 as default local-backend behavior. They were solutions to broad, underspecified
@@ -46,14 +45,14 @@ real two-file work after R10.
 | Structural corruption guard for LLM edits | `applyEditOps.ts` | Present differently | Full-file parser rejects malformed or non-target rewrites before write. The old diff-corruption recovery is no longer needed because the new path does not apply fuzzy hunks. |
 | Fuzzy hunk matching for imprecise diffs | `hunkHelpers.ts` | Obsolete | Full-file rewrite output intentionally replaced diff application for local coding tasks. |
 | Prefer full-file rewrite after repeated structural/type failures | `generateAttemptRetryState` | Present differently | The new path always requires full-file target blocks. |
-| Roll back failed validation attempts before retry | `rollbackAttempt`, `runStage` | Partial | R10 applies only once when all targets are available, but after a merged-set validation failure the retry loop still needs an explicit checkpoint/restore rule. Track as R19. |
+| Roll back failed validation attempts before retry | `rollbackAttempt`, `runStage` | Present | R19 added target-file checkpoint/restore around validation-repair rounds; accepted rewrites remain ledger data until the next clean apply. |
 | Bank progress across attempts | old stage commits and R10 ledger | Present | R10 added accumulated rewrite banking with newest-valid-wins semantics. |
 | Re-prompt only for missing or invalid files | `buildRetryDirectives`, R10 prompt path | Partial | R10 covers missing/invalid target banking. R13 should refine validation-target diagnostics without duplicating banking logic. |
 | Require next repair to touch diagnostic files | `evaluateDiagnosticFileTouchGate` | Partial | The local backend names failing files, but the old hard gate is stronger. Track as R13/R19 depending on implementation depth. |
-| Repeated no-effective-change detection | `commitOrHandleNoop` | Missing | Important for local loops that keep emitting already-applied output. Track as R20. |
+| Repeated no-effective-change detection | `commitOrHandleNoop` | Present | R20 detects repeated no-op full-file repair output for unresolved targets and fails distinctly with artifacts. |
 | Baseline typecheck delta detection | `captureBaselineTypecheck`, `evaluateTypecheckValidation` | Partial | Repository validation can fail or pass, but the new path does not yet subtract pre-existing typecheck errors in the backend. Track as R21 if broad repos expose this again. |
 | Deterministic unused-import cleanup | `unusedImportRepair` | Present | Already restored for eligible target files and kept target-scoped. |
-| Deterministic relative import repair | `importPathRepair` | Missing | Useful, deterministic, and target-scoped. Track as R22. |
+| Deterministic relative import repair | `importPathRepair` | Present | R22 reuses the legacy TS2307 relative import repair only for target files; reference files remain immutable. |
 | Deterministic domain-specific Roblox API repair | `robloxApiRepair` | Missing by design | Do not port into generic local backend. Re-enter only through repository/language-specific validation plugins. |
 | Luau formatting helper | `formatLuau` | Missing by design | Do not add globally. Use repo/language-specific cleanup hooks if AssetForge/Roblox work needs it. |
 | Information-request loop | `informationRequest/*` | Deferred/obsolete | Directed local tasks must carry explicit target/reference context. Re-enter only if a task has valid structured metadata but context assembly cannot fit required references. |
@@ -69,7 +68,9 @@ real two-file work after R10.
 
 Priority: P1
 
-Implement explicit checkpoint/restore semantics for validation-repair rounds in
+Status: implemented.
+
+Implemented explicit checkpoint/restore semantics for validation-repair rounds in
 the full-file local backend. After the accumulated rewrite set is applied and
 validation fails, restore the worktree to the pre-apply checkpoint before the
 next model round. Keep the accepted rewrite ledger as data, not as live
@@ -88,6 +89,8 @@ Acceptance:
 
 Priority: P1
 
+Status: implemented.
+
 Detect repeated model outputs that produce no material change for unresolved
 targets or repeat the same failing rewrite signature. Fail with a clear
 `already_resolved_or_bad_scope` style reason instead of consuming all rounds
@@ -105,9 +108,18 @@ Acceptance:
 
 Priority: P2
 
+Status: evaluated and deferred.
+
 Evaluate whether the backend should subtract pre-existing validation failures
 from repository validation output. This should be implemented only if the
 validation command returns parseable file diagnostics for the target repo.
+
+Decision: keep backend-level subtraction deferred. It would run repository
+validation before model work and can double local attempt cost/time. The
+existing QA validation path remains the delta-aware gate for broad repository
+validation. Re-enter only for repositories or validation profiles that prove
+parseable diagnostics and show pre-existing unrelated failures blocking valid
+target edits.
 
 Acceptance:
 
@@ -118,6 +130,8 @@ Acceptance:
 ### R22 - Target-Scoped Import Repair
 
 Priority: P2
+
+Status: implemented.
 
 Reuse the existing deterministic import repair where it can be safely scoped to
 target files. Do not touch reference files. Record repair artifacts.
