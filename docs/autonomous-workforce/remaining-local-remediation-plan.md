@@ -314,6 +314,121 @@ Acceptance:
 - A local attempt still succeeds when usage is unavailable.
 - Token metadata is available for future task-shaping and routing policy.
 
+## R19 - Validation-Repair Checkpointing
+
+Priority: P1
+
+Status: implemented.
+
+Goal: keep failed validation-repair rounds from leaving live worktree residue.
+
+Deliverables:
+
+- Snapshot target files before applying the accumulated rewrite ledger.
+- Restore target files after failed validation before prompting for another
+  repair round.
+- Preserve the accepted rewrite ledger as data; only the live file system is
+  restored.
+- Do not snapshot or restore broad repository state outside the target set.
+
+Acceptance:
+
+- A failed validation repair round does not leave partial target changes in the
+  worktree.
+- The next repair round still has access to the accepted rewrite ledger.
+- A later valid repair applies cleanly from the restored baseline.
+
+## R20 - Repeated No-Op Detection
+
+Priority: P1
+
+Status: implemented.
+
+Goal: stop local repair loops that keep re-emitting already banked content
+without resolving the current target.
+
+Deliverables:
+
+- Detect repeated full-file rewrites that are materially identical to already
+  accepted rewrites for unresolved targets.
+- Record `local_noop_detection` artifacts.
+- Prompt once for a materially changed rewrite, then fail distinctly if the
+  same no-op repeats.
+- Allow a response that repeats an accepted target when it also supplies a
+  missing or materially changed unresolved target.
+
+Acceptance:
+
+- Repeated no-op rewrites fail with a clear local backend summary.
+- Useful mixed responses are not rejected as no-ops.
+- The no-op path does not consume the whole round budget silently.
+
+## R21 - Baseline Validation Delta
+
+Priority: P2
+
+Status: evaluated and deferred.
+
+Goal: decide whether the local backend should subtract pre-existing validation
+failures before judging an attempt.
+
+Decision: keep backend-level baseline subtraction deferred. Running baseline
+validation inside every local attempt would execute the repository validation
+commands before model work and can double the cost/time of local execution.
+The local backend also cannot assume every validation command returns parseable
+file diagnostics.
+
+Current posture:
+
+- parseable validation diagnostics are fed back into local repair prompts
+- failed validation repair rounds restore the worktree before retry
+- repeated no-op rewrites fail distinctly instead of burning the whole round
+  budget silently
+- broader delta-aware validation remains in the existing QA validation path
+
+Re-entry condition: implement backend-level baseline subtraction only for a
+repository or validation profile that proves parseable file diagnostics and
+where pre-existing unrelated failures are blocking otherwise valid local target
+edits.
+
+## R22 - Target-Scoped Import Repair
+
+Priority: P2
+
+Status: implemented.
+
+Goal: reuse the deterministic import-path repair lesson from the legacy harness
+without letting the generic local backend mutate reference files or unrelated
+repository code.
+
+Deliverables:
+
+- Reuse the existing TS2307 relative import repair helper.
+- Apply it only to target files.
+- Exclude reference files even when diagnostics mention them.
+- Record deterministic cleanup artifacts when repair changes files.
+
+Acceptance:
+
+- A target file with a repairable relative import path is fixed and rechecked.
+- Reference files with the same diagnostic are not modified.
+- Package/bare import path repair remains out of scope for the generic local
+  backend.
+
+## Validation-Cost Observation
+
+Priority: P2 measurement item
+
+Status: noted; no behavior change.
+
+The backend validates the merged rewrite set inside the local repair loop, then
+the attempt runner validates again before PR creation. That is intentional
+defense-in-depth for now: the runner remains the pre-push authority and guards
+against backend bugs. Attempt durations and local token usage are now measurable,
+so this should be revisited with data. If the cost is material, add an explicit
+validated flag to `ExecutionResult` and let the runner trust the backend result
+with periodic spot checks.
+
 ## Implementation Sequence Completed
 
 1. R15 - Runtime config hardening.
@@ -341,24 +456,3 @@ The backend now preserves valid partial file rewrites across repair rounds when
 multi-file work is genuinely necessary, matching the relevant lesson from the
 previous local harness. That resilience is a fallback, not a reason to author
 large local tasks by default.
-
-## R21 Decision
-
-Backend-level baseline validation delta remains deferred. Running baseline
-validation inside every local attempt would execute the repository validation
-commands before model work and can double the cost/time of local execution.
-The local backend also cannot assume every validation command returns parseable
-file diagnostics.
-
-Current posture:
-
-- parseable validation diagnostics are fed back into local repair prompts
-- failed validation repair rounds restore the worktree before retry
-- repeated no-op rewrites fail distinctly instead of burning the whole round
-  budget silently
-- broader delta-aware validation remains in the existing QA validation path
-
-Re-entry condition: implement backend-level baseline subtraction only for a
-repository or validation profile that proves parseable file diagnostics and
-where pre-existing unrelated failures are blocking otherwise valid local
-target edits.
