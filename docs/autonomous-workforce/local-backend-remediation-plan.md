@@ -68,7 +68,7 @@ existing-file editing under the diff contract is the broken class.
 | 1 | Full-file rewrite output contract (never diffs) | `personas.ts` lead-engineer; `workflows/prompts/lead-engineer-implementation.txt` | **Port — becomes the local output contract** | The central hard-won lesson; directly explains 6 of 6 recorded local failures |
 | 2 | `implementation_prefer_full_file` recovery escalation | `lead-engineer-implementation.txt` (~L94) | **Subsumed by #1** | If full-file is the primary contract, the recovery path is the default path |
 | 3 | Plan key-file guard (output must touch required files; missing-file tracking) | `PlanKeyFileGuardStep`, `implementationValidation.ts` | **Adapt** | The directed-task contract's TARGET section supplies required files; guard verifies context inclusion before the call and output coverage after |
-| 4 | Targeted context selection (plan/snippet-driven, not scan-ordered) | `implementationSnippets.ts` (`resolveImplementationSnippetFiles`) | **Port** | TARGET files + files named in CHANGE (imports, imitation targets) load first at full fidelity; inventory and remaining budget after |
+| 4 | Targeted context selection (plan/snippet-driven, not scan-ordered) | `implementationSnippets.ts` (`resolveImplementationSnippetFiles`) | **Port** | Structured `target_files` + `reference_files` (C2) load first at full fidelity; inventory and remaining budget after |
 | 5 | Baseline typecheck capture + validation diagnostics (compact error feedback into retries) | `implementationDiagnostics.ts` (`captureBaselineTypecheck`, `compactValidationErrors`, `formatValidationSummary`) | **Port** | Repair rounds must see *what failed*, compactly — not just "validation failed" |
 | 6 | Retry directives (e.g. missing-export/TS2459 guidance) + deterministic TS6133 unused-import stripper | implementation loop helpers | **Port as pluggable post-processors/diagnostics** | Deterministic fixes cost zero tokens; directives measurably ended retry loops in the benchmark cycle |
 | 7 | Info-request loop with budget + forced produce-now | implementation loop | **Defer** | The directed contract front-loads context; revisit only if artifact evidence shows missing-information failures |
@@ -225,7 +225,7 @@ there is exactly one implementation of each lesson during the transition.
 - **D4 — Tasks 159/163/165–168.** Recommend: leave them `blocked` as
   evidence; queue the remediation validation as fresh tasks when the port
   lands (fresh budgets, and the acceptance run reuses their exact briefs).
-- **D5 — `target_files` storage.** Recommend: a structured `target_files`
-  column on tasks written at intake (C2) rather than run-time prose
-  parsing; the alternative (parse-at-execution with a strict grammar) is
-  acceptable only with the same refuse-on-ambiguity semantics.
+- **D5 — resolved (no longer a decision).** Structured
+  `target_files`/`reference_files` written at intake are the only
+  mechanism; parse-at-execution is not an acceptable alternative — the
+  point of C2 is intake-time refusal and durable structured metadata.
