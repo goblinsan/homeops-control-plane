@@ -44,6 +44,35 @@ spot-check coverage.
 - Prioritization suggestions must remain non-claimable roadmap state.
 - Any control workflow gaining SCM write capability is a stop condition.
 
+## Parked: Control API Access Boundary
+
+Accepted for now, revisit before any non-local exposure.
+
+The dashboard UI route issues a session cookie derived from the control
+workflow token to any caller that loads the page, and the control endpoints
+accept that cookie in place of the token. The token therefore gates nothing
+beyond loading the UI, including the run actions that abort or retry attempts.
+This is acceptable while the dashboard is reachable only from the local
+network, where the rest of its API is unauthenticated anyway.
+
+Revisit when control surfaces are fronted by the authenticated admin portal.
+The intended shape is that the portal performs the authentication and the
+dashboard trusts only its forwarded identity, replacing the self-issued
+cookie. Do not expose the dashboard beyond the local network before that
+lands.
+
+## Observation Sweep Scope
+
+Findings cover runs, not backlog. A blocked task is reported only when an
+execution attempt left it blocked, so roadmap and planning drafts that are
+blocked pending a directed contract never enter the observation feed.
+
+Sweeps report `scan_coverage` per scope. When a scope hits its row limit the
+sweep is incomplete, and findings belonging to that scope are not cleared —
+they are counted as `clear_deferred` instead. This keeps the transition log
+honest: a finding that merely fell outside a truncated scan must not record a
+false `cleared` event.
+
 ## Operator Checks
 
 1. Check current observations for active findings and slow validation gates.
