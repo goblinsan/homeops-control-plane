@@ -46,22 +46,35 @@ queued together with `--open-all` if throughput matters more than sequencing.
 
 ### Wired repositories with no backlog yet
 
-These are registered, protected and gated, but have no contracts written. Each gate below
-was run locally before being registered; a command absent from a gate is absent because it
-fails on pre-existing faults, not because it was skipped.
+All five are registered, protected, gated and on `auto_on_validation`. Every gate below
+was run locally to green before the policy was set — a gate that cannot pass makes every
+task fail on faults it did not cause.
 
-| Project | Repo | Gate | Merge policy | Notes |
-| --- | --- | --- | --- | --- |
-| 17 mermaid-quest-academy | 9 | `npm ci`, `npx vitest run` | human_review | 270 tests green, but `npm run lint` fails with 10 errors and `npm run build` fails on a vite config type error. Fix those before widening the gate or enabling auto-merge. |
-| 20 dnd-campaign-table | 10 | `npm ci`, `npx jest --testPathPatterns=tests/ --forceExit`, `npm run build` | auto_on_validation | 237 tests green, build clean. The strongest of the five. |
-| 21 public-future-initiative | 11 | `npm ci`, `npm run lint`, `npm run typecheck`, `npx jest` | human_review | 81 tests green and a full gate, but the wanted work is editorial content, which no gate can validate. |
-| 19 47-sunset-studios-landing-site | 12 | `npm ci`, `npm run lint`, `npm run typecheck` | human_review | No tests exist. The gate proves compilation only. |
-| 18 soccer-coaching-hub | 13 | `npm ci`, `npm run lint`, `npm run build` | human_review | No tests exist. Its package `test` script is `echo "No tests yet" && exit 0` — a stub that always passes. It must never appear in a gate. |
+| Project | Repo | Gate | Coverage it proves |
+| --- | --- | --- | --- |
+| 17 mermaid-quest-academy | 9 | `npm ci`, lint, build, `npx vitest run` | 270 tests, plus compile and lint |
+| 20 dnd-campaign-table | 10 | `npm ci`, jest, build | 237 tests, plus compile |
+| 21 public-future-initiative | 11 | `npm ci`, lint, typecheck, `npm run validate`, `npm test` | 81 tests, plus frontmatter validation over `content/` |
+| 19 47-sunset-studios-landing-site | 12 | `npm ci`, lint, typecheck, build | Static prerender of every page; a broken component fails the build |
+| 18 soccer-coaching-hub | 13 | `npm ci`, lint, build, `npm test` | 11 repository tests, plus compile |
 
 Every gate starts with `npm ci` because the conductor runs validation commands in a fresh
 clone and has no install step of its own. That also means these gates need registry access
 from the execution container; the first attempt against any of them will prove whether
 that exists.
+
+Three of the five needed repair before they could be gated honestly, and the repairs are
+worth knowing about:
+
+- **mermaid-quest-academy** had 270 passing tests alongside ten lint errors and eight type
+  errors. Tests passing said nothing about whether the project built.
+- **soccer-coaching-hub** shipped `"test": "echo \"No tests yet\" && exit 0"`. Gating on
+  it would have reported success forever. It now has eleven tests covering the
+  repositories' defensive-copy contract, verified by sabotage.
+- **public-future-initiative** has an editorial content surface under `content/`, which no
+  code test touches. `npm run validate` checks required frontmatter across every content
+  file, so content changes are structurally guarded — though nothing can validate whether
+  the prose is true.
 
 `automation_enabled` is off for all five. Turning it on is an operator decision, and
 nothing here is claimable until then.
