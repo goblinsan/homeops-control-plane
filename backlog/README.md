@@ -46,9 +46,9 @@ queued together with `--open-all` if throughput matters more than sequencing.
 
 ### Wired repositories with no backlog yet
 
-All five are registered, protected, gated and on `auto_on_validation`. Every gate below
-was run locally to green before the policy was set — a gate that cannot pass makes every
-task fail on faults it did not cause.
+All five are registered, protected, gated, on `auto_on_validation`, and automated. Every
+gate below was run locally to green before the policy was set — a gate that cannot pass
+makes every task fail on faults it did not cause.
 
 | Project | Repo | Gate | Coverage it proves |
 | --- | --- | --- | --- |
@@ -76,8 +76,10 @@ worth knowing about:
   file, so content changes are structurally guarded — though nothing can validate whether
   the prose is true.
 
-`automation_enabled` is off for all five. Turning it on is an operator decision, and
-nothing here is claimable until then.
+`automation_enabled` is on for all five as of 2026-08-13, and conductor dispatch is
+running. Both halves of the claim path are therefore open: a task queued against any of
+these repositories with a `selected_repository_id` set will be claimed on the next
+dispatch cadence without further approval. Queue deliberately.
 
 ## What "unattended: yes" means here
 
