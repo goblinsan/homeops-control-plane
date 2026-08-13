@@ -58,10 +58,44 @@ makes every task fail on faults it did not cause.
 | 19 47-sunset-studios-landing-site | 12 | `npm ci`, lint, typecheck, build | Static prerender of every page; a broken component fails the build |
 | 18 soccer-coaching-hub | 13 | `npm ci`, lint, build, `npm test` | 11 repository tests, plus compile |
 
-Every gate starts with `npm ci` because the conductor runs validation commands in a fresh
-clone and has no install step of its own. That also means these gates need registry access
-from the execution container; the first attempt against any of them will prove whether
-that exists.
+Every gate starts with `npm ci --include=dev` because the conductor runs validation
+commands in a fresh clone and has no install step of its own. The `--include=dev` is not
+decoration — see below.
+
+#### Registry access is proven; `NODE_ENV` was the real problem
+
+Attempt 103 on repository 12 settled the open question. The conductor's in-loop validator
+runs a repository's commands in order and returns on the first one that fails. It reported
+a failure for `npm run lint`, the *second* command, which is only reachable if the first
+one passed. So **`npm ci` reaches the registry from the execution container and exits 0.**
+There is no egress problem.
+
+The failure it did report was this:
+
+    > eslint src --ext .ts,.tsx
+    sh: 1: eslint: not found
+
+The conductor image sets `ENV NODE_ENV=production` (its Dockerfile runtime stage). Under
+that variable npm omits `devDependencies`, so a plain `npm ci` installs successfully and
+still leaves no `eslint`, no `tsc`, no `vitest`, no `jest`. Reproduced locally against a
+fresh clone:
+
+| command | exit | `eslint` | `tsc` | `next` |
+| --- | --- | --- | --- | --- |
+| `NODE_ENV=production npm ci` | 0 | absent | absent | present |
+| `npm ci` | 0 | present | present | present |
+| `NODE_ENV=production npm ci --include=dev` | 0 | present | present | present |
+
+Every gate that shells out to a dev-dependency binary was therefore unpassable, while
+`npm ci` itself reported success. All five gates now use `npm ci --include=dev`.
+
+This also explains a failure that looked like a model defect. When a validation command
+fails, the local backend feeds the diagnostics back to the model as a repair prompt. Told
+to fix `eslint: not found`, the only lever the model has is `package.json`, so it rewrote
+it — and the non-target-file guard correctly rejected that, three rounds per attempt,
+across two different repositories. The guard behaved correctly; the model was responding
+rationally to an impossible instruction. **An environmental failure must not be handed to
+the model as a repair prompt.**
 
 Three of the five needed repair before they could be gated honestly, and the repairs are
 worth knowing about:
@@ -80,6 +114,22 @@ worth knowing about:
 running. Both halves of the claim path are therefore open: a task queued against any of
 these repositories with a `selected_repository_id` set will be claimed on the next
 dispatch cadence without further approval. Queue deliberately.
+
+#### Both failure breakers latch until the process restarts
+
+Found while proving the above, and it blocks unattended running until it is fixed.
+
+`BreakerBoard` holds consecutive-failure counts in memory. A repository breaker opens after
+three consecutive failures and is cleared only by `resetRepo`, which **is never called
+anywhere in the codebase**, or by a success on that repository — which the open breaker
+itself prevents. The global breaker is worse: `dispatcher.ts` halts all dispatch while it
+is open, so no attempt runs, so no outcome is ever recorded, so the rolling window never
+changes. It cannot close on its own.
+
+There is no HTTP control for either one. `/execution/resume` does not touch them. The only
+recovery today is restarting the conductor process, which is fine when someone is watching
+and useless overnight. Three bad tasks in a row can silently retire a repository, or the
+whole queue, until a human notices.
 
 ## What "unattended: yes" means here
 
