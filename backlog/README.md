@@ -44,6 +44,28 @@ written down in that repository at `docs/auto-merge-safety-boundary.md`.
 All three create a new file that nothing else in the backlog touches, so they may be
 queued together with `--open-all` if throughput matters more than sequencing.
 
+### Wired repositories with no backlog yet
+
+These are registered, protected and gated, but have no contracts written. Each gate below
+was run locally before being registered; a command absent from a gate is absent because it
+fails on pre-existing faults, not because it was skipped.
+
+| Project | Repo | Gate | Merge policy | Notes |
+| --- | --- | --- | --- | --- |
+| 17 mermaid-quest-academy | 9 | `npm ci`, `npx vitest run` | human_review | 270 tests green, but `npm run lint` fails with 10 errors and `npm run build` fails on a vite config type error. Fix those before widening the gate or enabling auto-merge. |
+| 20 dnd-campaign-table | 10 | `npm ci`, `npx jest --testPathPatterns=tests/ --forceExit`, `npm run build` | auto_on_validation | 237 tests green, build clean. The strongest of the five. |
+| 21 public-future-initiative | 11 | `npm ci`, `npm run lint`, `npm run typecheck`, `npx jest` | human_review | 81 tests green and a full gate, but the wanted work is editorial content, which no gate can validate. |
+| 19 47-sunset-studios-landing-site | 12 | `npm ci`, `npm run lint`, `npm run typecheck` | human_review | No tests exist. The gate proves compilation only. |
+| 18 soccer-coaching-hub | 13 | `npm ci`, `npm run lint`, `npm run build` | human_review | No tests exist. Its package `test` script is `echo "No tests yet" && exit 0` — a stub that always passes. It must never appear in a gate. |
+
+Every gate starts with `npm ci` because the conductor runs validation commands in a fresh
+clone and has no install step of its own. That also means these gates need registry access
+from the execution container; the first attempt against any of them will prove whether
+that exists.
+
+`automation_enabled` is off for all five. Turning it on is an operator decision, and
+nothing here is claimable until then.
+
 ## What "unattended: yes" means here
 
 The task creates a file no other backlog item touches, in a directory the validation gate
