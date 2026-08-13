@@ -148,3 +148,63 @@ edits a file created by an earlier task must not become claimable until the
 earlier PR is *merged*. Queue the first task `open` and the successors
 `blocked`; after each merge + `review`, `reopen` the next one. `workq queue`
 does the initial open/blocked setup for you.
+
+## 8. Delegating the queue to another agent
+
+The queue is meant to be operated by whichever agent is on hand — Claude, Codex, Gemini,
+a cron job, or the operator. Nothing in the lifecycle needs an LLM. This section is the
+whole contract for that hand-off.
+
+### What the delegate needs
+
+- `scripts/workq.sh` on PATH, with `WORKQ_DASHBOARD_URL`, `WORKQ_CONDUCTOR_URL`,
+  `WORKQ_CONDUCTOR_KEY` and `WORKQ_CONTRACT_PARSER` set (see section 7).
+- `backlog/` — vetted contracts, already through the parser and `/plans/evaluate`.
+- `backlog/README.md` — the inventory, and which items are unattended-safe.
+
+### The loop
+
+```bash
+workq.sh status                       # dispatch on? anything in flight?
+workq.sh board                        # what is already running or awaiting review
+workq.sh queue <projectId> <repoId> backlog/<repo>/<file>.md \
+        --priority <n> --complexity low --label unattended-batch
+workq.sh board                        # confirm the claim
+workq.sh attempts <taskId>            # on failure: category, PR link, history
+```
+
+Under `merge_policy=auto_on_validation` a successful task reaches `done` on its own and
+needs no review step. Under `human_review` it stops at `in_review` and needs
+`workq.sh review <pid> <tid> <outcome>`.
+
+### Rules for a delegate
+
+1. **Only queue from `backlog/`.** Authoring a contract at queue time skips both intake
+   gates. If new work is needed, write it into `backlog/`, run the parser and the
+   evaluator, and queue it on the next pass.
+2. **Respect the unattended column.** An item marked `no` needs a human before it runs.
+3. **One chain at a time.** If two contracts touch the same file, queue the first `open`
+   and let `workq queue` hold the rest `blocked`; worktrees clone `main`, so a successor
+   queued early runs against stale code.
+4. **Stop on the second consecutive failure.** Two failures in a row is a systemic problem
+   — a broken gate, a stale contract, an unreachable model — not a task-level one. Report
+   the failure categories from `workq.sh attempts` and stop queueing.
+5. **Never widen the gate to make something pass.** If a task fails validation, the task
+   is wrong until proven otherwise. Changing `validation_commands` to get a green run
+   removes the only thing standing between a bad change and `main`.
+6. **Do not enable dispatch or change merge policy.** `workq.sh resume` and repository
+   posture are operator decisions.
+
+### Reporting back
+
+After a batch, report: what was queued, the terminal state of each task, PR links for
+anything merged, and failure categories for anything that did not. For a milestone's worth
+of work, fetch the review packet instead of narrating:
+
+```
+GET /projects/<projectId>/milestones/<milestoneId>/review-packet?format=markdown
+```
+
+That document is self-contained and designed to be read by a model. Findings go back via
+`POST /projects/<projectId>/milestones/<milestoneId>/review-findings`; an accepted finding
+becomes a blocked task rather than running immediately.
