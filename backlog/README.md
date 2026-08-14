@@ -44,6 +44,31 @@ written down in that repository at `docs/auto-merge-safety-boundary.md`.
 All three create a new file that nothing else in the backlog touches, so they may be
 queued together with `--open-all` if throughput matters more than sequencing.
 
+### public-future-initiative (project 21, repository 11)
+
+Repository posture: `auto_on_validation`, dispatch `background_ok`, automation on. The gate
+is `npm ci --include=dev`, `npm run lint`, `npm run typecheck`, `npm run validate`,
+`npm test`.
+
+| File | Creates | Unattended | Depends on |
+| --- | --- | --- | --- |
+| `01-test-analytics.md` | `__tests__/lib/analytics.test.ts` | yes | — |
+
+This is the first contract that asks for tests rather than prose, and it is the shape worth
+copying. A documentation gate proves the repository still builds; it cannot read the
+document. A test gate **executes what the model wrote**, so a wrong assertion fails the
+attempt and never reaches `main`. The verification is real rather than procedural.
+
+Its pre-flight went a step further than the others: the model's generated test was run
+against the repository, passed six of six, and was then checked by breaking
+`lib/analytics.ts` in two ways — always wrapping props instead of passing `undefined`, and
+logging in production. Each broke exactly one test. A test that passes proves nothing until
+you have watched it fail.
+
+The contract deliberately excludes the `typeof window === 'undefined'` branch: jsdom always
+defines `window`, so that branch is unreachable from this file and asking for it would set
+an impossible acceptance criterion.
+
 ### dnd-campaign-table (project 20, repository 10)
 
 Repository posture: `auto_on_validation`, dispatch `background_ok`, automation on. The gate
@@ -92,8 +117,7 @@ that the repair holds on this repository.
 
 ### Wired repositories with no backlog yet
 
-Only `public-future-initiative` still has no contract written. All five are registered,
-protected,
+All five now have a contract. All five are registered, protected,
 gated, on `auto_on_validation`, and automated. Every gate below was run locally to green
 before the policy was set — a gate that cannot pass makes every task fail on faults it did
 not cause.
