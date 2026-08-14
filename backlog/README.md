@@ -44,11 +44,40 @@ written down in that repository at `docs/auto-merge-safety-boundary.md`.
 All three create a new file that nothing else in the backlog touches, so they may be
 queued together with `--open-all` if throughput matters more than sequencing.
 
+### 47-sunset-studios-landing-site (project 19, repository 12)
+
+Repository posture: `auto_on_validation`, dispatch `background_ok`, automation on. The gate
+is `npm ci --include=dev`, `npm run lint`, `npm run typecheck`, `npm run build`. The site is
+fully static, so a successful build prerenders every page — that is real coverage for this
+repository, not a stand-in for tests it does not have.
+
+| File | Creates | Unattended | Depends on |
+| --- | --- | --- | --- |
+| `01-docs-layout-primitives.md` | `docs/layout-primitives.md` | delivered | — |
+
+Delivered by task 209 / attempt 104 and auto-merged: all four gate commands passed, the
+document was checked against the source and its props, class names and five size mappings
+are correct. Kept here as the worked example of a contract that survives the 14B.
+
+### soccer-coaching-hub (project 18, repository 13)
+
+Repository posture: `auto_on_validation`, dispatch `background_ok`, automation on. The gate
+is `npm ci --include=dev`, `npm run lint`, `npm run build`, `npm test`.
+
+| File | Creates | Unattended | Depends on |
+| --- | --- | --- | --- |
+| `01-docs-repositories.md` | `docs/repositories.md` | yes | — |
+
+Written and pre-flighted but never delivered: its two attempts predate the gate repair, so
+they failed on the environment rather than on the contract. Re-queue it as the first check
+that the repair holds on this repository.
+
 ### Wired repositories with no backlog yet
 
-All five are registered, protected, gated, on `auto_on_validation`, and automated. Every
-gate below was run locally to green before the policy was set — a gate that cannot pass
-makes every task fail on faults it did not cause.
+Three of the five still have no contract written. All five are registered, protected,
+gated, on `auto_on_validation`, and automated. Every gate below was run locally to green
+before the policy was set — a gate that cannot pass makes every task fail on faults it did
+not cause.
 
 | Project | Repo | Gate | Coverage it proves |
 | --- | --- | --- | --- |
@@ -115,21 +144,31 @@ running. Both halves of the claim path are therefore open: a task queued against
 these repositories with a `selected_repository_id` set will be claimed on the next
 dispatch cadence without further approval. Queue deliberately.
 
-#### Both failure breakers latch until the process restarts
+#### Both failure breakers now recover on their own
 
-Found while proving the above, and it blocks unattended running until it is fixed.
+They did not, until 2026-08-13. A repository breaker opened after three consecutive
+failures and cleared only by `resetRepo` — never called anywhere — or by a success the open
+breaker itself prevented. The global breaker halted all dispatch, so no attempt ran, no
+outcome was recorded, and its window never changed. Three bad tasks in a row could retire a
+repository, or the whole queue, until someone restarted the service.
 
-`BreakerBoard` holds consecutive-failure counts in memory. A repository breaker opens after
-three consecutive failures and is cleared only by `resetRepo`, which **is never called
-anywhere in the codebase**, or by a success on that repository — which the open breaker
-itself prevents. The global breaker is worse: `dispatcher.ts` halts all dispatch while it
-is open, so no attempt runs, so no outcome is ever recorded, so the rolling window never
-changes. It cannot close on its own.
+Both now open for a cooldown and then go half-open: the next attempt is allowed through and
+its outcome decides whether the breaker closes or re-arms with a doubled cooldown, capped at
+an hour. Defaults are ten minutes per repository and five globally, both env-tunable. The
+global breaker also closes early if attempts already in flight roll the failure ratio back
+under the threshold. A breaker-open repository no longer parks its task in `blocked`; the
+task returns to the queue and waits the cooldown out.
 
-There is no HTTP control for either one. `/execution/resume` does not touch them. The only
-recovery today is restarting the conductor process, which is fine when someone is watching
-and useless overnight. Three bad tasks in a row can silently retire a repository, or the
-whole queue, until a human notices.
+`GET /execution/status` now reports `global_retry_at` and `repository_retry_at`, so an
+operator can see when each breaker will next be probed. To clear one immediately:
+
+```bash
+curl -X POST "$WORKQ_CONDUCTOR_URL/execution/breakers/reset" \
+  -H "Authorization: Bearer $WORKQ_CONDUCTOR_KEY" \
+  -H 'Content-Type: application/json' -d '{"repository_id": 13}'
+```
+
+An empty body clears every breaker.
 
 ## What "unattended: yes" means here
 
