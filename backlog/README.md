@@ -44,6 +44,24 @@ written down in that repository at `docs/auto-merge-safety-boundary.md`.
 All three create a new file that nothing else in the backlog touches, so they may be
 queued together with `--open-all` if throughput matters more than sequencing.
 
+### dnd-campaign-table (project 20, repository 10)
+
+Repository posture: `auto_on_validation`, dispatch `background_ok`, automation on. The gate
+is `npm ci --include=dev`, jest over `tests/`, `npm run build`.
+
+| File | Creates | Unattended | Depends on |
+| --- | --- | --- | --- |
+| `01-docs-roles.md` | `docs/roles.md` | yes | — |
+
+### mermaid-quest-academy (project 17, repository 9)
+
+Repository posture: `auto_on_validation`, dispatch `background_ok`, automation on. The gate
+is `npm ci --include=dev`, `npm run lint`, `npm run build`, `npx vitest run`.
+
+| File | Creates | Unattended | Depends on |
+| --- | --- | --- | --- |
+| `01-docs-audio-id-validation.md` | `docs/audio-id-validation.md` | yes | — |
+
 ### 47-sunset-studios-landing-site (project 19, repository 12)
 
 Repository posture: `auto_on_validation`, dispatch `background_ok`, automation on. The gate
@@ -74,7 +92,8 @@ that the repair holds on this repository.
 
 ### Wired repositories with no backlog yet
 
-Three of the five still have no contract written. All five are registered, protected,
+Only `public-future-initiative` still has no contract written. All five are registered,
+protected,
 gated, on `auto_on_validation`, and automated. Every gate below was run locally to green
 before the policy was set — a gate that cannot pass makes every task fail on faults it did
 not cause.
@@ -158,6 +177,15 @@ an hour. Defaults are ten minutes per repository and five globally, both env-tun
 global breaker also closes early if attempts already in flight roll the failure ratio back
 under the threshold. A breaker-open repository no longer parks its task in `blocked`; the
 task returns to the queue and waits the cooldown out.
+
+A repository in cooldown no longer stalls anything else. The claim takes
+`exclude_repository_ids`, and the conductor passes its open breakers on every claim, so the
+queue hands back the next task whose repository is workable instead of returning the same
+blocked one each tick. One project failing its way into a breaker leaves the rest of the
+overnight queue running.
+
+The global breaker still halts everything while it is open, which is correct — that one
+means the failure is not specific to a repository — and it now clears itself.
 
 `GET /execution/status` now reports `global_retry_at` and `repository_retry_at`, so an
 operator can see when each breaker will next be probed. To clear one immediately:
