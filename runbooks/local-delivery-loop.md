@@ -90,8 +90,13 @@ cost a run:
 
 ### Size
 
-Keep to roughly six test cases per task. An eight-case spec produced no output
-at all on one of three probes: the model ran out of output tokens mid-file.
+Keep to roughly four to six test cases per task. Two separate truncations have
+happened: an eight-case spec produced no output at all under the probe, and a
+six-case spec passed the probe cleanly and then truncated mid-file in a real
+run, leaving `Unbalanced braces: 21 open vs 20 close`.
+
+Truncation is the one failure the pre-flight cannot predict — see below — so
+prefer two small tasks over one large one.
 
 ### Shape that works
 
@@ -102,19 +107,41 @@ stumbles. Put the weight there.
 ## Pre-flight
 
 **Probe the real model three times before queueing.** This costs a few minutes
-and has caught a bad spec every time it mattered.
+and has caught a bad spec nearly every time it mattered.
 
 ```bash
 ./scripts/local-delivery/build-inventory.sh /path/to/repo > inventory.txt
 python3 ./scripts/local-delivery/probe-spec.py "$LMS_BASE_URL" spec.txt inventory.txt
 ```
 
-Both helpers live in `scripts/local-delivery/`. The probe sends the same system
-prompt and the same repository listing the workflow will send, so what it emits
-is what the run will get.
-
 Accept only **three for three**, each emitting exactly one block at exactly the
 target path. Two of three is not good enough — fix the spec.
+
+### What the probe is not
+
+The probe is a proxy, not a rehearsal. It sends the prompt from
+`src/execution/localBackendPrompt.ts`, which belongs to the execution dispatch
+path. Work queued this way runs through the **workflow engine**, which uses a
+different prompt entirely — `src/workflows/prompts/lead-engineer-implementation.txt`,
+a template several times the size, expanded with the plan, any prior information
+requests, and retry directives.
+
+They differ in ways that matter:
+
+| | Probe | Real run |
+| --- | --- | --- |
+| Asks for | Full-file rewrite blocks | Unified diffs, with full-file rewrite only as a corruption fallback |
+| Context | Repository file listing | Listing plus the injected contents of every plan-referenced file |
+| Size | Small and fixed | Large and variable |
+
+So the probe answers **is this spec unambiguous** — one target, no leaked path,
+no mangled filename, no block for a protected file. Those are real failures and
+it catches them.
+
+It cannot answer **will the output fit** or **will the diff apply**, because it
+asks for a different output format against a smaller prompt. A spec can pass
+three for three and still truncate in the run. When that happens the spec was
+too big, not the probe wrong; shrink it and requeue.
 
 ## Queueing
 
@@ -198,7 +225,7 @@ environment, not the output.
 | `<binary>: not found` | A dev dependency is missing. The container sets `NODE_ENV=production`; installs must pass `--include=dev`. |
 | `This is not the tsc command you are looking for` | `npx tsc` fetched an unrelated registry package because no local compiler was installed. |
 | Peer dependency conflict on install | A lockfile was discarded. `npm ci` against the committed lockfile resolves what `npm install --no-package-lock` cannot. |
-| `Unbalanced braces: N open vs M close` | The model's output was truncated. Shrink the spec. |
+| `Unbalanced braces: N open vs M close` | The model's output was truncated. Shrink the spec; the pre-flight cannot predict this. |
 | `non-target file was modified` | The spec mentioned a path it should not have, or lacked the output-format block. |
 | Model rewrites `package.json` on a docs task | An environmental gate failure fed back as a repair prompt. Fix the environment, not the spec. |
 
